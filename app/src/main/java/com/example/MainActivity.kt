@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -81,8 +82,17 @@ class MainActivity : ComponentActivity() {
     enableEdgeToEdge()
     setContent {
       val langCode by viewModel.languageCode.collectAsStateWithLifecycle()
+      val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
       val isAuthenticated by viewModel.isAdminAuthenticated.collectAsStateWithLifecycle()
       val statusBanner by viewModel.statusBanner.collectAsStateWithLifecycle()
+
+      val systemDark = isSystemInDarkTheme()
+      val darkTheme =
+        when (themeMode) {
+          "dark" -> true
+          "light" -> false
+          else -> systemDark
+        }
 
       val baseContext = LocalContext.current
       val localizedContext =
@@ -122,7 +132,7 @@ class MainActivity : ComponentActivity() {
         LocalLayoutDirection provides layoutDirection,
       ) {
         ProvideSafeTextToolbar {
-          DeviceRecorderTheme {
+          DeviceRecorderTheme(darkTheme = darkTheme) {
           Scaffold(
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
           ) { outerPadding ->

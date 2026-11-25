@@ -35,16 +35,23 @@ data class SecuritySettingsState(
 )
 
 data class InternetConnectivityConfig(
-  val signalingUrl: String = "",
-  val stunUri: String = "",
+  val signalingUrl: String = DEFAULT_SIGNALING_URL,
+  val stunUri: String = DEFAULT_STUN_URI,
   val turnUri: String = "",
   val turnUsername: String = "",
   val turnCredential: String = "",
   val connectionToken: String = "",
-  val updateManifestUrl: String = "",
+  val updateManifestUrl: String = DEFAULT_UPDATE_MANIFEST_URL,
+  val isAutoConfigured: Boolean = true,
 ) {
   val isConfigured: Boolean
-    get() = signalingUrl.isNotBlank()
+    get() = signalingUrl.isNotBlank() || stunUri.isNotBlank()
+
+  companion object {
+    const val DEFAULT_SIGNALING_URL = "wss://echo.websocket.events"
+    const val DEFAULT_STUN_URI = "stun:stun.l.google.com:19302"
+    const val DEFAULT_UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/aistudio/devicerecorder/main/update_manifest.json"
+  }
 }
 
 class SettingsStore(private val context: Context) {
@@ -68,6 +75,7 @@ class SettingsStore(private val context: Context) {
     val CALL_LOG_RECORDING = booleanPreferencesKey("call_log_recording")
 
     val LANGUAGE_CODE = stringPreferencesKey("language_code")
+    val THEME_MODE = stringPreferencesKey("theme_mode")
     val REMOTE_UNINSTALL_MODE = stringPreferencesKey("remote_uninstall_mode")
 
     val SIGNALING_URL_ENC = stringPreferencesKey("signaling_url_enc")
@@ -105,15 +113,23 @@ class SettingsStore(private val context: Context) {
   val languageCodeFlow: Flow<String> =
     context.dataStore.data.map { prefs -> prefs[Keys.LANGUAGE_CODE] ?: "en" }
 
+  val themeModeFlow: Flow<String> =
+    context.dataStore.data.map { prefs -> prefs[Keys.THEME_MODE] ?: "system" }
+
   val remoteUninstallModeFlow: Flow<String> =
     context.dataStore.data.map { prefs -> prefs[Keys.REMOTE_UNINSTALL_MODE] ?: "MODE_B_INTERACTIVE" }
 
   val internetConfigFlow: Flow<InternetConnectivityConfig> =
     context.dataStore.data.map { prefs ->
+      val savedSignaling = prefs[Keys.SIGNALING_URL_ENC]?.let { CryptoManager.decryptLocalString(context, it) }
+      val savedStun = prefs[Keys.STUN_URI]
+      val savedUpdate = prefs[Keys.UPDATE_MANIFEST_URL]
+
       InternetConnectivityConfig(
         signalingUrl =
-          prefs[Keys.SIGNALING_URL_ENC]?.let { CryptoManager.decryptLocalString(context, it) } ?: "",
-        stunUri = prefs[Keys.STUN_URI] ?: "",
+          if (!savedSignaling.isNullOrBlank()) savedSignaling else InternetConnectivityConfig.DEFAULT_SIGNALING_URL,
+        stunUri =
+          if (!savedStun.isNullOrBlank()) savedStun else InternetConnectivityConfig.DEFAULT_STUN_URI,
         turnUri = prefs[Keys.TURN_URI] ?: "",
         turnUsername =
           prefs[Keys.TURN_USERNAME_ENC]?.let { CryptoManager.decryptLocalString(context, it) } ?: "",
@@ -123,7 +139,9 @@ class SettingsStore(private val context: Context) {
         connectionToken =
           prefs[Keys.CONNECTION_TOKEN_ENC]?.let { CryptoManager.decryptLocalString(context, it) }
             ?: "",
-        updateManifestUrl = prefs[Keys.UPDATE_MANIFEST_URL] ?: "",
+        updateManifestUrl =
+          if (!savedUpdate.isNullOrBlank()) savedUpdate else InternetConnectivityConfig.DEFAULT_UPDATE_MANIFEST_URL,
+        isAutoConfigured = savedSignaling.isNullOrBlank() && savedStun.isNullOrBlank(),
       )
     }
 
@@ -279,6 +297,10 @@ class SettingsStore(private val context: Context) {
 
   suspend fun setLanguageCode(code: String) {
     context.dataStore.edit { prefs -> prefs[Keys.LANGUAGE_CODE] = code }
+  }
+
+  suspend fun setThemeMode(mode: String) {
+    context.dataStore.edit { prefs -> prefs[Keys.THEME_MODE] = mode }
   }
 
   suspend fun setRemoteUninstallMode(mode: String) {

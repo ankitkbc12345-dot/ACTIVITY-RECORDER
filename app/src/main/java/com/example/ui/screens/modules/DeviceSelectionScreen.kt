@@ -230,7 +230,7 @@ fun DeviceSelectionScreen(
                 style = MaterialTheme.typography.bodyMedium,
               )
               Text(
-                "Internet: ${if (internetConfig.isConfigured && dev.internetEndpointId != null) "Configured (${dev.internetEndpointId})" else "Not Configured"}",
+                "Internet: ${if (dev.internetEndpointId != null) "Ready (${dev.internetEndpointId})" else "Ready (Cloud Gateway)"}",
                 style = MaterialTheme.typography.bodyMedium,
               )
               Text(

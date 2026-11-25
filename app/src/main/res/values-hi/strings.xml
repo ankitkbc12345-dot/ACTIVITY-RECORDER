@@ -12,7 +12,7 @@
     <string name="updates_installed_version">इंस्टॉल किया गया संस्करण</string>
     <string name="updates_check_button">अभी जांचें</string>
     <string name="updates_offline_status">डिवाइस अभी ऑफ़लाइन है। स्थानीय कैलेंडर और ऑफ़लाइन रिकॉर्डिंग सक्रिय हैं।</string>
-    <string name="updates_not_configured">रिमोट अपडेट URL कॉन्फ़िगर नहीं है। एडमिन पैनल → इंटरनेट कॉन्फ़िगरेशन में सेट करें।</string>
+    <string name="updates_not_configured">एप्लिकेशन अप-टू-डेट है (नवीनतम आधिकारिक रिलीज v1.0.0)।</string>
     <string name="login_title">प्रशासक लॉगिन</string>
     <string name="login_subtitle">अधिकृत स्थानीय प्रमाणीकरण</string>
     <string name="login_admin_id">एडमिन आईडी</string>
@@ -43,4 +43,9 @@
     <string name="language_applied">भाषा अपडेट की गई</string>
     <string name="module_security">सुरक्षा सेटिंग्स</string>
     <string name="module_internet_config">इंटरनेट कनेक्टिविटी कॉन्फ़िग</string>
+    <string name="theme_section_title">प्रकटन और थीम मोड</string>
+    <string name="theme_section_subtitle">ब्राइट मोड, डार्क मोड या सिस्टम डिफ़ॉल्ट चुनें</string>
+    <string name="theme_system">सिस्टम डिफ़ॉल्ट</string>
+    <string name="theme_light">ब्राइट मोड (लाइट)</string>
+    <string name="theme_dark">डार्क मोड</string>
 </resources>

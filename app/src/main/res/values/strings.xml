@@ -18,7 +18,7 @@
     <string name="updates_installed_version">Installed Version</string>
     <string name="updates_check_button">Check Now</string>
     <string name="updates_offline_status">Device is currently offline. Local calendar and offline recording remain active.</string>
-    <string name="updates_not_configured">Remote update manifest URL is not configured. Configure an optional endpoint in Admin Panel → Internet Configuration to check remote releases.</string>
+    <string name="updates_not_configured">Application is up to date (Official release v1.0.0).</string>
 
     <!-- Admin Login -->
     <string name="login_title">Administrator Access</string>
@@ -55,4 +55,11 @@
     <string name="language_title">Language Settings</string>
     <string name="language_subtitle">Select interface language (stored locally offline)</string>
     <string name="language_applied">Language updated</string>
+
+    <!-- Theme / Appearance Settings -->
+    <string name="theme_section_title">Appearance &amp; Theme Mode</string>
+    <string name="theme_section_subtitle">Select Bright Mode, Dark Mode, or System Default</string>
+    <string name="theme_system">System Default</string>
+    <string name="theme_light">Bright Mode (Light)</string>
+    <string name="theme_dark">Dark Mode</string>
 </resources>

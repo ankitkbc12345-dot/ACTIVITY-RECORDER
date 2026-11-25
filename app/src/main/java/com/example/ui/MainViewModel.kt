@@ -114,6 +114,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   val languageCode: StateFlow<String> =
     settingsStore.languageCodeFlow.stateIn(viewModelScope, SharingStarted.Eagerly, "en")
 
+  val themeMode: StateFlow<String> =
+    settingsStore.themeModeFlow.stateIn(viewModelScope, SharingStarted.Eagerly, "system")
+
   val remoteUninstallMode: StateFlow<String> =
     settingsStore.remoteUninstallModeFlow.stateIn(
       viewModelScope,
@@ -356,6 +359,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   fun setLanguageCode(code: String) {
     recordUserActivity()
     viewModelScope.launch { settingsStore.setLanguageCode(code) }
+  }
+
+  fun setThemeMode(mode: String) {
+    recordUserActivity()
+    viewModelScope.launch { settingsStore.setThemeMode(mode) }
   }
 
   fun setRemoteUninstallMode(mode: String) {

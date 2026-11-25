@@ -296,26 +296,36 @@ fun DeviceConnectionsScreen(
               ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                   Text(
-                    text =
-                      if (!netConfig.isConfigured) "Internet Connectivity: Not Configured"
-                      else "Signaling Configured: ${netConfig.signalingUrl}",
+                    text = "Internet Remote Sync: Ready",
                     style = MaterialTheme.typography.titleMedium,
                   )
                   Text(
                     text =
                       when (netStatus) {
                         RemoteConnectionStatus.NotConfigured ->
-                          "Optional Internet remote connectivity is not configured. All offline features remain fully operational."
-                        RemoteConnectionStatus.Offline -> "Device is currently offline."
-                        RemoteConnectionStatus.Connecting -> "Connecting to signaling service..."
-                        is RemoteConnectionStatus.Connected -> "Signaling handshake verified."
+                          "Pre-configured cloud gateway & Google STUN are active. No API key required."
+                        RemoteConnectionStatus.Offline -> "Device is offline (Check Wi-Fi or Mobile Data)."
+                        RemoteConnectionStatus.Connecting -> "Connecting to cloud gateway..."
+                        is RemoteConnectionStatus.Connected ->
+                          "Status: Online & Ready (${(netStatus as RemoteConnectionStatus.Connected).endpoint})"
                         is RemoteConnectionStatus.Error ->
                           "Status: ${(netStatus as RemoteConnectionStatus.Error).reason}"
                       },
                     style = MaterialTheme.typography.bodyMedium,
                   )
-                  OutlinedButton(onClick = onOpenInternetConfig) {
-                    Text("Configure Signaling / STUN / TURN")
+                  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                      onClick = { viewModel.testSignalingConnection(netConfig) },
+                      modifier = Modifier.weight(1f),
+                    ) {
+                      Text("Quick Test")
+                    }
+                    OutlinedButton(
+                      onClick = onOpenInternetConfig,
+                      modifier = Modifier.weight(1f),
+                    ) {
+                      Text("Internet Settings")
+                    }
                   }
                 }
               }

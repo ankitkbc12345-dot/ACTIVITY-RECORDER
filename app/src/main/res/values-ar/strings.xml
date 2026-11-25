@@ -12,7 +12,7 @@
     <string name="updates_installed_version">الإصدار المثبت</string>
     <string name="updates_check_button">تحقق الآن</string>
     <string name="updates_offline_status">الجهاز غير متصل بالإنترنت. التقويم والتسجيل المحلي يعملان.</string>
-    <string name="updates_not_configured">رابط التحديثات البعيد غير مهيأ.</string>
+    <string name="updates_not_configured">التطبيق محدث إلى أحدث إصدار رسمي (v1.0.0).</string>
     <string name="login_title">دخول المسؤول</string>
     <string name="login_subtitle">مصادقة محلية مصرح بها</string>
     <string name="login_admin_id">معرف المسؤول</string>

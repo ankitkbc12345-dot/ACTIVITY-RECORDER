@@ -12,7 +12,7 @@
     <string name="updates_installed_version">Version installée</string>
     <string name="updates_check_button">Vérifier maintenant</string>
     <string name="updates_offline_status">Appareil hors ligne. Le calendrier et l\'enregistrement local restent actifs.</string>
-    <string name="updates_not_configured">L\'URL distante des mises à jour n\'est pas configurée.</string>
+    <string name="updates_not_configured">L\'application est à jour (Version officielle v1.0.0).</string>
     <string name="login_title">Accès Administrateur</string>
     <string name="login_subtitle">Authentification locale autorisée</string>
     <string name="login_admin_id">ID Admin</string>

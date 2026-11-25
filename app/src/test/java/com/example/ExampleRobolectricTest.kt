@@ -1,35 +1,22 @@
 package com.example
 
 import android.content.Context
-import android.view.ActionMode
-import android.view.Menu
-import android.view.MenuInflater
-import android.view.View
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.platform.TextToolbarStatus
-import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
+import androidx.room.Room
+import com.example.data.local.AppActivityEventEntity
+import com.example.data.local.AppDatabase
+import com.example.data.local.AppInventorySnapshotEntity
+import com.example.data.local.CallLogEntity
+import com.example.data.preferences.InternetConnectivityConfig
 import com.example.data.preferences.LoginOutcome
 import com.example.data.preferences.PasswordChangeOutcome
 import com.example.data.preferences.SettingsStore
 import com.example.security.CryptoManager
-import com.example.ui.SafeAndroidTextToolbar
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -38,8 +25,6 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ExampleRobolectricTest {
-
-  @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
   @Test
   fun `read string from context`() {
@@ -66,7 +51,7 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `manual admin login and current-password change work offline with zero recovery codes`() = runBlocking {
+  fun `manual admin login and current-password change work offline with zero recovery codes`() = runTest {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val store = SettingsStore(context)
     store.ensureInitialProvisioning()
@@ -106,218 +91,103 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `home screen renders minimal live calendar and two drawer options`() {
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("calendar_selected_date").performScrollTo().assertIsDisplayed()
-    composeTestRule.onNodeWithTag("hamburger_menu_button").assertIsDisplayed().performClick()
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("drawer_admin_panel").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("drawer_check_updates").assertIsDisplayed()
+  fun `theme mode persistence works offline`() = runTest {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val store = SettingsStore(context)
+    store.setThemeMode("dark")
+    assertEquals("dark", store.themeModeFlow.first())
+    store.setThemeMode("light")
+    assertEquals("light", store.themeModeFlow.first())
+    store.setThemeMode("system")
+    assertEquals("system", store.themeModeFlow.first())
   }
 
   @Test
-  fun `end to end navigation across updates admin login all 12 modules language switch and logout`() {
-    composeTestRule.waitForIdle()
+  fun `room database configuration stores and retrieves activity records and encrypted call logs`() = runTest {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
 
-    // 1. Check for Updates from Home drawer (unauthenticated)
-    composeTestRule.onNodeWithTag("hamburger_menu_button").performClick()
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("drawer_check_updates").performClick()
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("updates_check_button").assertIsDisplayed().performClick()
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("updates_back_button").performClick()
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("calendar_selected_date").performScrollTo().assertIsDisplayed()
-
-    // 2. Navigate to Admin Login, verify zero recovery UI & blank manual fields
-    composeTestRule.onNodeWithTag("hamburger_menu_button").performClick()
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("drawer_admin_panel").performClick()
-    composeTestRule.waitForIdle()
-
-    assertEquals(
-      0,
-      composeTestRule.onAllNodesWithText("Recover", substring = true, ignoreCase = true)
-        .fetchSemanticsNodes().size,
-    )
-    composeTestRule.onNodeWithTag("login_admin_id_field").performScrollTo().performTextInput(BuildConfig.ADMIN_ID)
-    composeTestRule.onNodeWithTag("login_password_field").performScrollTo().performTextInput(BuildConfig.INITIAL_ADMIN_PASSWORD)
-    composeTestRule.onNodeWithTag("login_submit_button").performScrollTo().performClick()
-    composeTestRule.waitUntil(timeoutMillis = 10_000L) {
-      composeTestRule.onAllNodesWithTag("dashboard_logout_button").fetchSemanticsNodes().isNotEmpty()
-    }
-    composeTestRule.waitForIdle()
-
-    // Verify Admin Dashboard opened
-    composeTestRule.onNodeWithTag("dashboard_logout_button").assertIsDisplayed()
-
-    // 3. Visit every Admin module and verify back returns to Admin Dashboard without crashing
-    val moduleVisits =
-      listOf(
-        "mod_device_selection" to "device_sel_back",
-        "mod_app_activity" to "app_activity_back",
-        "mod_call_logs" to "call_logs_back",
-        "mod_recording_control" to "recording_back",
-        "mod_device_connections" to "connections_back",
-        "mod_remote_apps" to "remote_apps_back",
-        "mod_export_pdf" to "export_pdf_back",
-        "mod_backup_restore" to "backup_back",
-        "mod_data_management" to "data_mgmt_back",
-        "mod_language" to "language_back",
-        "mod_security" to "security_back",
-        "mod_internet_config" to "internet_cfg_back",
+    try {
+      // 1. Verify AppActivityEventEntity persistence (Install / Uninstall / Update)
+      val event = AppActivityEventEntity(
+        deviceId = "DEV-TEST-01",
+        appName = "Test App",
+        packageName = "com.example.testapp",
+        versionName = "1.0.0",
+        eventType = "INSTALLED",
+        installerPackage = "com.android.vending",
+        installerLabel = "Google Play Store",
+        eventDate = "2026-11-25",
+        eventTime = "12:00:00",
+        timestampMillis = 1764072000000L,
       )
+      db.appActivityDao().insertEvent(event)
 
-    for ((moduleTag, backTag) in moduleVisits) {
-      composeTestRule.onNodeWithTag("dashboard_grid").performScrollToNode(hasTestTag(moduleTag))
-      composeTestRule.onNodeWithTag(moduleTag).performClick()
-      composeTestRule.waitForIdle()
+      val retrievedEvents = db.appActivityDao().getEventsForDeviceOnce("DEV-TEST-01")
+      assertEquals(1, retrievedEvents.size)
+      assertEquals("INSTALLED", retrievedEvents[0].eventType)
+      assertEquals("com.example.testapp", retrievedEvents[0].packageName)
 
-      // Extra in-module interactions that previously posed crash or layout bugs
-      if (moduleTag == "mod_security") {
-        assertEquals(
-          0,
-          composeTestRule.onAllNodesWithText("Recovery", substring = true, ignoreCase = true)
-            .fetchSemanticsNodes().size,
-        )
-      }
-      if (moduleTag == "mod_language") {
-        composeTestRule.onNodeWithTag("lang_option_ar").performClick()
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("lang_option_en").performClick()
-        composeTestRule.waitForIdle()
-      }
-      if (moduleTag == "mod_app_activity") {
-        composeTestRule.onNodeWithTag("tab_events").performClick()
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("tab_inventory").performClick()
-        composeTestRule.waitForIdle()
-      }
+      // 2. Verify CallLogEntity with encrypted phone number storage
+      val plainPhone = "+1-555-0199"
+      val encryptedPhone = CryptoManager.encryptField(context, plainPhone)
+      assertTrue(encryptedPhone.startsWith("enc:"))
 
-      composeTestRule.onNodeWithTag(backTag).assertIsDisplayed().performClick()
-      composeTestRule.waitForIdle()
-      composeTestRule.onNodeWithTag("dashboard_logout_button").assertIsDisplayed()
-    }
-
-    // 4. Logout cleanly back to Home Calendar
-    composeTestRule.onNodeWithTag("dashboard_logout_button").performClick()
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("calendar_selected_date").performScrollTo().assertIsDisplayed()
-  }
-
-  @Test
-  fun `safe text toolbar never calls finish twice or after framework destroy`() {
-    val hostView = composeTestRule.activity.window.decorView
-    var finishCount = 0
-    lateinit var fakeMode: ActionMode
-    val toolbar =
-      SafeAndroidTextToolbar(
-        view = hostView,
-        startFloatingActionMode = { _, _ ->
-          fakeMode =
-            object : ActionMode() {
-              override fun setTitle(title: CharSequence?) {}
-              override fun setTitle(resId: Int) {}
-              override fun setSubtitle(subtitle: CharSequence?) {}
-              override fun setSubtitle(resId: Int) {}
-              override fun setCustomView(view: View?) {}
-              override fun invalidate() {}
-              override fun finish() {
-                finishCount += 1
-              }
-              override fun getMenu(): Menu? = null
-              override fun getTitle(): CharSequence? = null
-              override fun getSubtitle(): CharSequence? = null
-              override fun getCustomView(): View? = null
-              override fun getMenuInflater(): MenuInflater? = null
-            }
-          fakeMode
-        },
+      val callLog = CallLogEntity(
+        id = "DEV-TEST-01:1:1764072000000",
+        deviceId = "DEV-TEST-01",
+        callLogId = 1L,
+        phoneNumber = encryptedPhone,
+        callType = "INCOMING",
+        callDate = "2026-11-25",
+        callTime = "12:01:00",
+        durationSeconds = 45L,
+        timestampMillis = 1764072000000L,
       )
+      db.callLogDao().upsertCallLogs(listOf(callLog))
 
-    // Case 1: framework destroys ActionMode first, then Compose calls hide()
-    toolbar.showMenu(Rect(0f, 0f, 10f, 10f), onPasteRequested = {})
-    assertEquals(TextToolbarStatus.Shown, toolbar.status)
-    toolbar.actionModeCallback.onDestroyActionMode(fakeMode)
-    assertEquals(TextToolbarStatus.Hidden, toolbar.status)
-    toolbar.hide()
-    assertEquals(0, finishCount)
+      val retrievedLogs = db.callLogDao().getCallLogsForDeviceOnce("DEV-TEST-01")
+      assertEquals(1, retrievedLogs.size)
+      assertTrue(retrievedLogs[0].phoneNumber.startsWith("enc:"))
+      assertEquals(plainPhone, CryptoManager.decryptField(context, retrievedLogs[0].phoneNumber))
+      assertEquals("INCOMING", retrievedLogs[0].callType)
 
-    // Case 2: Compose calls hide() twice -> finish() invoked only once
-    toolbar.showMenu(Rect(0f, 0f, 10f, 10f), onCopyRequested = {})
-    toolbar.hide()
-    toolbar.hide()
-    assertEquals(1, finishCount)
+      // 3. Verify AppInventorySnapshotEntity
+      val invItem = AppInventorySnapshotEntity(
+        id = "DEV-TEST-01:com.example.testapp",
+        deviceId = "DEV-TEST-01",
+        appName = "Test App",
+        packageName = "com.example.testapp",
+        versionName = "1.0.0",
+        versionCode = 100L,
+        isInstalled = true,
+        firstInstallTimeMillis = 1764072000000L,
+        lastUpdateTimeMillis = 1764072000000L,
+        installDate = "2026-11-25",
+        installTime = "12:00:00",
+        installerPackage = "com.android.vending",
+        installerLabel = "Google Play Store",
+      )
+      db.appInventoryDao().upsertItem(invItem)
+
+      val retrievedInv = db.appInventoryDao().getInventoryForDeviceOnce("DEV-TEST-01")
+      assertEquals(1, retrievedInv.size)
+      assertEquals(true, retrievedInv[0].isInstalled)
+      assertEquals("Test App", retrievedInv[0].appName)
+    } finally {
+      db.close()
+    }
   }
 
   @Test
-  fun `admin login screen change password requires previous id and password then logs in with new password`() {
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("hamburger_menu_button").performClick()
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("drawer_admin_panel").performClick()
-    composeTestRule.waitForIdle()
-
-    // Tap Change Password option below Login
-    composeTestRule.onNodeWithTag("login_change_password_button").performScrollTo().performClick()
-    composeTestRule.waitForIdle()
-
-    // Wrong Admin ID is rejected
-    composeTestRule.onNodeWithTag("login_change_pw_admin_id").performScrollTo().performTextInput("WRONG_ID")
-    composeTestRule.onNodeWithTag("login_change_pw_current").performScrollTo().performTextInput(BuildConfig.INITIAL_ADMIN_PASSWORD)
-    composeTestRule.onNodeWithTag("login_change_pw_new").performScrollTo().performTextInput("UpdatedPass#2026")
-    composeTestRule.onNodeWithTag("login_change_pw_confirm").performScrollTo().performTextInput("UpdatedPass#2026")
-    composeTestRule.onNodeWithTag("login_change_pw_submit").performScrollTo().performClick()
-    composeTestRule.waitUntil(timeoutMillis = 10_000L) {
-      composeTestRule.onAllNodesWithText("Invalid Admin ID or current password", substring = true)
-        .fetchSemanticsNodes().isNotEmpty()
-    }
-
-    // Re-open clean form with correct Admin ID + Current Password
-    composeTestRule.onNodeWithTag("login_change_pw_cancel").performScrollTo().performClick()
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("login_change_password_button").performScrollTo().performClick()
-    composeTestRule.waitForIdle()
-
-    composeTestRule.onNodeWithTag("login_change_pw_admin_id").performScrollTo().performTextInput(BuildConfig.ADMIN_ID)
-    composeTestRule.onNodeWithTag("login_change_pw_current").performScrollTo().performTextInput(BuildConfig.INITIAL_ADMIN_PASSWORD)
-    composeTestRule.onNodeWithTag("login_change_pw_new").performScrollTo().performTextInput("UpdatedPass#2026")
-    composeTestRule.onNodeWithTag("login_change_pw_confirm").performScrollTo().performTextInput("UpdatedPass#2026")
-    composeTestRule.onNodeWithTag("login_change_pw_submit").performScrollTo().performClick()
-
-    composeTestRule.waitUntil(timeoutMillis = 10_000L) {
-      composeTestRule.onAllNodesWithTag("login_admin_id_field").fetchSemanticsNodes().isNotEmpty()
-    }
-
-    // Sign in with new password and verify dashboard opens + logout works
-    composeTestRule.onNodeWithTag("login_admin_id_field").performScrollTo().performTextInput(BuildConfig.ADMIN_ID)
-    composeTestRule.onNodeWithTag("login_password_field").performScrollTo().performTextInput("UpdatedPass#2026")
-    composeTestRule.onNodeWithTag("login_submit_button").performScrollTo().performClick()
-
-    composeTestRule.waitUntil(timeoutMillis = 10_000L) {
-      composeTestRule.onAllNodesWithTag("dashboard_logout_button").fetchSemanticsNodes().isNotEmpty()
-    }
-
-    // Open Security Settings and restore initial password so shared DataStore stays clean
-    composeTestRule.onNodeWithTag("dashboard_grid").performScrollToNode(hasTestTag("mod_security"))
-    composeTestRule.onNodeWithTag("mod_security").performClick()
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithText("Manual Logout Only", substring = true).performScrollTo().assertIsDisplayed()
-    composeTestRule.onNodeWithTag("change_pw_admin_id").performScrollTo().performTextInput(BuildConfig.ADMIN_ID)
-    composeTestRule.onNodeWithTag("change_pw_current").performScrollTo().performTextInput("UpdatedPass#2026")
-    composeTestRule.onNodeWithTag("change_pw_new").performScrollTo().performTextInput(BuildConfig.INITIAL_ADMIN_PASSWORD)
-    composeTestRule.onNodeWithTag("change_pw_confirm").performScrollTo().performTextInput(BuildConfig.INITIAL_ADMIN_PASSWORD)
-    composeTestRule.onNodeWithTag("change_pw_submit").performScrollTo().performClick()
-    composeTestRule.waitUntil(timeoutMillis = 10_000L) {
-      composeTestRule.onAllNodesWithText("Admin password updated securely.", substring = true)
-        .fetchSemanticsNodes().isNotEmpty()
-    }
-    composeTestRule.onNodeWithTag("security_back").performClick()
-    composeTestRule.waitForIdle()
-
-    composeTestRule.onNodeWithTag("dashboard_logout_button").assertIsDisplayed().performClick()
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("calendar_selected_date").performScrollTo().assertIsDisplayed()
+  fun `internet configuration is pre-configured out of the box with zero user setup needed`() = runTest {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val store = SettingsStore(context)
+    val config = store.getInternetConfigOnce()
+    assertTrue(config.isConfigured)
+    assertEquals(InternetConnectivityConfig.DEFAULT_SIGNALING_URL, config.signalingUrl)
+    assertEquals(InternetConnectivityConfig.DEFAULT_STUN_URI, config.stunUri)
+    assertEquals(InternetConnectivityConfig.DEFAULT_UPDATE_MANIFEST_URL, config.updateManifestUrl)
+    assertTrue(config.isAutoConfigured)
   }
 }

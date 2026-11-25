@@ -155,7 +155,7 @@ fun AdminDashboardScreen(
       ),
       DashboardModuleItem(
         R.string.module_internet_config,
-        "Optional signaling, STUN & TURN",
+        "Pre-configured cloud & STUN sync",
         Icons.Default.Public,
         NavRoutes.INTERNET_CONFIG,
         "mod_internet_config",
