@@ -1,0 +1,6 @@
+{
+  "name": "Device Recorder",
+  "description": "Offline-first personal device activity recorder with live calendar, encrypted local records, and optional multi-device sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,58 @@
+<resources>
+    <string name="app_name">Device Recorder</string>
+
+    <!-- Navigation & Drawer -->
+    <string name="menu_open_cd">Open navigation menu</string>
+    <string name="menu_admin_panel">Admin Panel / Admin Dashboard</string>
+    <string name="menu_check_updates">Check for Updates</string>
+    <string name="nav_back_cd">Navigate back</string>
+
+    <!-- Calendar Home -->
+    <string name="calendar_prev_month_cd">Previous month</string>
+    <string name="calendar_next_month_cd">Next month</string>
+    <string name="calendar_today_action">Today</string>
+    <string name="calendar_timezone_prefix">Local Time Zone</string>
+
+    <!-- Check for Updates -->
+    <string name="updates_title">Application Updates</string>
+    <string name="updates_installed_version">Installed Version</string>
+    <string name="updates_check_button">Check Now</string>
+    <string name="updates_offline_status">Device is currently offline. Local calendar and offline recording remain active.</string>
+    <string name="updates_not_configured">Remote update manifest URL is not configured. Configure an optional endpoint in Admin Panel → Internet Configuration to check remote releases.</string>
+
+    <!-- Admin Login -->
+    <string name="login_title">Administrator Access</string>
+    <string name="login_subtitle">Authorized local authentication</string>
+    <string name="login_admin_id">Admin ID</string>
+    <string name="login_admin_password">Admin Password</string>
+    <string name="login_button">Login</string>
+    <string name="login_change_password">Change Password</string>
+    <string name="login_back_to_login">Back to Login</string>
+    <string name="change_pw_title">Change Admin Password</string>
+    <string name="change_pw_subtitle">Enter current Admin ID and password to set a new password</string>
+    <string name="login_error_invalid">Invalid Admin ID or password.</string>
+    <string name="login_error_locked">Too many failed attempts. Try again in %1$d seconds.</string>
+    <string name="login_offline_badge">Offline Authentication Ready</string>
+
+    <!-- Admin Dashboard Modules -->
+    <string name="dashboard_title">Admin Dashboard</string>
+    <string name="dashboard_logout">Lock &amp; Exit</string>
+    <string name="dashboard_active_scope">Active Device Scope</string>
+    <string name="module_device_selection">Device Selection</string>
+    <string name="module_app_activity">Application Activity Records</string>
+    <string name="module_call_logs">Call Log Records</string>
+    <string name="module_recording_control">Recording Control Settings</string>
+    <string name="module_device_connections">Device Connection Management</string>
+    <string name="module_remote_apps">Remote Application Management</string>
+    <string name="module_export_pdf">Data Export &amp; PDF Generation</string>
+    <string name="module_backup_restore">Backup &amp; Restore</string>
+    <string name="module_data_management">Data Management</string>
+    <string name="module_language">Language Settings</string>
+    <string name="module_security">Security Settings</string>
+    <string name="module_internet_config">Internet Connectivity Config</string>
+
+    <!-- Language Settings -->
+    <string name="language_title">Language Settings</string>
+    <string name="language_subtitle">Select interface language (stored locally offline)</string>
+    <string name="language_applied">Language updated</string>
+</resources>

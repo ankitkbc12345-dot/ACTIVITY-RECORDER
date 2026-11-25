@@ -1,0 +1,469 @@
+package com.example.ui.screens
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import com.example.R
+import java.text.DateFormatSymbols
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+@Composable
+fun HomeCalendarScreen(
+  onOpenAdminPanel: () -> Unit,
+  onOpenCheckUpdates: () -> Unit,
+) {
+  val context = LocalContext.current
+  val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+  val scope = rememberCoroutineScope()
+
+  var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+  // Listen to system clock / date / timezone broadcasts and keep live clock refreshed
+  DisposableEffect(context) {
+    val receiver =
+      object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context?, intent: Intent?) {
+          nowMillis = System.currentTimeMillis()
+        }
+      }
+    val filter =
+      IntentFilter().apply {
+        addAction(Intent.ACTION_TIME_TICK)
+        addAction(Intent.ACTION_TIME_CHANGED)
+        addAction(Intent.ACTION_DATE_CHANGED)
+        addAction(Intent.ACTION_TIMEZONE_CHANGED)
+      }
+    ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
+    onDispose {
+      try {
+        context.unregisterReceiver(receiver)
+      } catch (_: Exception) {}
+    }
+  }
+
+  LaunchedEffect(Unit) {
+    while (true) {
+      delay(15_000L)
+      nowMillis = System.currentTimeMillis()
+    }
+  }
+
+  val localCal =
+    remember(nowMillis) {
+      Calendar.getInstance(TimeZone.getDefault(), Locale.getDefault()).apply {
+        timeInMillis = nowMillis
+      }
+    }
+  val currentYear = localCal.get(Calendar.YEAR)
+  val currentMonth = localCal.get(Calendar.MONTH)
+  val currentDay = localCal.get(Calendar.DAY_OF_MONTH)
+
+  var displayedYear by remember { mutableIntStateOf(currentYear) }
+  var displayedMonth by remember { mutableIntStateOf(currentMonth) }
+  var selectedYear by remember { mutableIntStateOf(currentYear) }
+  var selectedMonth by remember { mutableIntStateOf(currentMonth) }
+  var selectedDay by remember { mutableIntStateOf(currentDay) }
+
+  ModalNavigationDrawer(
+    drawerState = drawerState,
+    drawerContent = {
+      ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+          text = stringResource(R.string.app_name),
+          style = MaterialTheme.typography.titleLarge,
+          color = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+        )
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        NavigationDrawerItem(
+          label = { Text(stringResource(R.string.menu_admin_panel)) },
+          icon = { Icon(Icons.Default.AdminPanelSettings, contentDescription = null) },
+          selected = false,
+          onClick = {
+            scope.launch { drawerState.close() }
+            onOpenAdminPanel()
+          },
+          modifier =
+            Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+              .testTag("drawer_admin_panel"),
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        NavigationDrawerItem(
+          label = { Text(stringResource(R.string.menu_check_updates)) },
+          icon = { Icon(Icons.Default.SystemUpdate, contentDescription = null) },
+          selected = false,
+          onClick = {
+            scope.launch { drawerState.close() }
+            onOpenCheckUpdates()
+          },
+          modifier =
+            Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+              .testTag("drawer_check_updates"),
+        )
+      }
+    },
+  ) {
+    Scaffold(
+      contentWindowInsets = WindowInsets(0, 0, 0, 0),
+      containerColor = MaterialTheme.colorScheme.background,
+    ) { innerPadding ->
+      Column(
+        modifier =
+          Modifier.fillMaxSize()
+            .padding(innerPadding)
+            .statusBarsPadding()
+            .padding(top = 8.dp, start = 20.dp, end = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+      ) {
+        // Minimal top row with ONLY the 3-line hamburger icon in upper-left corner
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          IconButton(
+            onClick = { scope.launch { drawerState.open() } },
+            modifier = Modifier.minimumInteractiveComponentSize().testTag("hamburger_menu_button"),
+          ) {
+            Icon(
+              imageVector = Icons.Default.Menu,
+              contentDescription = stringResource(R.string.menu_open_cd),
+              tint = MaterialTheme.colorScheme.onBackground,
+              modifier = Modifier.size(28.dp),
+            )
+          }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Column(
+          modifier =
+            Modifier.weight(1f)
+              .widthIn(max = 560.dp)
+              .fillMaxWidth()
+              .verticalScroll(rememberScrollState())
+              .padding(bottom = 24.dp),
+          horizontalAlignment = Alignment.Start,
+        ) {
+          val locale = Locale.getDefault()
+          val tz = TimeZone.getDefault()
+          val dayOfWeekText =
+            remember(nowMillis, locale) {
+              SimpleDateFormat("EEEE", locale).apply { timeZone = tz }.format(Date(nowMillis))
+            }
+          val fullDateText =
+            remember(nowMillis, locale) {
+              SimpleDateFormat("d MMMM yyyy", locale).apply { timeZone = tz }.format(Date(nowMillis))
+            }
+          val liveTimeText =
+            remember(nowMillis, locale) {
+              SimpleDateFormat("hh:mm a", locale).apply { timeZone = tz }.format(Date(nowMillis))
+            }
+
+          // Clean live date & time header
+          Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 1.dp,
+            modifier =
+              Modifier.fillMaxWidth()
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(24.dp)),
+          ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+              Text(
+                text = dayOfWeekText.uppercase(locale),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.secondary,
+              )
+              Spacer(modifier = Modifier.height(6.dp))
+              Text(
+                text = fullDateText,
+                style = MaterialTheme.typography.displayMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+              )
+              Spacer(modifier = Modifier.height(12.dp))
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Text(
+                  text = liveTimeText,
+                  style = MaterialTheme.typography.labelSmall,
+                  color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                  text = "${stringResource(R.string.calendar_timezone_prefix)}: ${tz.getDisplayName(false, TimeZone.SHORT, locale)}",
+                  style = MaterialTheme.typography.labelSmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+              }
+            }
+          }
+
+          Spacer(modifier = Modifier.height(20.dp))
+
+          // Monthly Calendar Card
+          Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 1.dp,
+            modifier =
+              Modifier.fillMaxWidth()
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(24.dp)),
+          ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+              val monthCal =
+                remember(displayedYear, displayedMonth) {
+                  Calendar.getInstance(tz, locale).apply {
+                    set(Calendar.YEAR, displayedYear)
+                    set(Calendar.MONTH, displayedMonth)
+                    set(Calendar.DAY_OF_MONTH, 1)
+                  }
+                }
+              val monthTitle =
+                remember(displayedYear, displayedMonth, locale) {
+                  SimpleDateFormat("MMMM yyyy", locale).apply { timeZone = tz }.format(monthCal.time)
+                }
+
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+              ) {
+                Text(
+                  text = monthTitle,
+                  style = MaterialTheme.typography.titleLarge,
+                  color = MaterialTheme.colorScheme.onSurface,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  if (displayedYear != currentYear || displayedMonth != currentMonth) {
+                    TextButton(
+                      onClick = {
+                        displayedYear = currentYear
+                        displayedMonth = currentMonth
+                        selectedYear = currentYear
+                        selectedMonth = currentMonth
+                        selectedDay = currentDay
+                      },
+                      modifier = Modifier.testTag("calendar_today_button"),
+                    ) {
+                      Text(stringResource(R.string.calendar_today_action))
+                    }
+                  }
+                  IconButton(
+                    onClick = {
+                      if (displayedMonth == 0) {
+                        displayedMonth = 11
+                        displayedYear -= 1
+                      } else {
+                        displayedMonth -= 1
+                      }
+                    },
+                    modifier = Modifier.minimumInteractiveComponentSize().testTag("calendar_prev_month"),
+                  ) {
+                    Icon(
+                      Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                      contentDescription = stringResource(R.string.calendar_prev_month_cd),
+                    )
+                  }
+                  IconButton(
+                    onClick = {
+                      if (displayedMonth == 11) {
+                        displayedMonth = 0
+                        displayedYear += 1
+                      } else {
+                        displayedMonth += 1
+                      }
+                    },
+                    modifier = Modifier.minimumInteractiveComponentSize().testTag("calendar_next_month"),
+                  ) {
+                    Icon(
+                      Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                      contentDescription = stringResource(R.string.calendar_next_month_cd),
+                    )
+                  }
+                }
+              }
+
+              Spacer(modifier = Modifier.height(16.dp))
+
+              // Day of week headers (Sun .. Sat)
+              val shortWeekdays = remember(locale) { DateFormatSymbols(locale).shortWeekdays }
+              Row(modifier = Modifier.fillMaxWidth()) {
+                for (dow in Calendar.SUNDAY..Calendar.SATURDAY) {
+                  Text(
+                    text = shortWeekdays[dow].take(3),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f),
+                  )
+                }
+              }
+
+              Spacer(modifier = Modifier.height(10.dp))
+
+              val firstDayOfWeek = monthCal.get(Calendar.DAY_OF_WEEK) // 1 = Sun
+              val leadingBlanks = firstDayOfWeek - Calendar.SUNDAY
+              val daysInMonth = monthCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+              val totalCells = ((leadingBlanks + daysInMonth + 6) / 7) * 7
+
+              for (rowStart in 0 until totalCells step 7) {
+                Row(
+                  modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                  horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                  for (col in 0 until 7) {
+                    val cellIndex = rowStart + col
+                    val dayNum = cellIndex - leadingBlanks + 1
+                    if (dayNum in 1..daysInMonth) {
+                      val isToday =
+                        displayedYear == currentYear &&
+                          displayedMonth == currentMonth &&
+                          dayNum == currentDay
+                      val isSelected =
+                        displayedYear == selectedYear &&
+                          displayedMonth == selectedMonth &&
+                          dayNum == selectedDay
+
+                      val bgColor =
+                        when {
+                          isToday -> MaterialTheme.colorScheme.primary
+                          isSelected -> MaterialTheme.colorScheme.secondaryContainer
+                          else -> MaterialTheme.colorScheme.surface
+                        }
+                      val textColor =
+                        when {
+                          isToday -> MaterialTheme.colorScheme.onPrimary
+                          isSelected -> MaterialTheme.colorScheme.onSecondaryContainer
+                          else -> MaterialTheme.colorScheme.onSurface
+                        }
+
+                      Box(
+                        modifier =
+                          Modifier.weight(1f)
+                            .aspectRatio(1f)
+                            .clip(CircleShape)
+                            .background(bgColor)
+                            .clickable {
+                              selectedYear = displayedYear
+                              selectedMonth = displayedMonth
+                              selectedDay = dayNum
+                            },
+                        contentAlignment = Alignment.Center,
+                      ) {
+                        Text(
+                          text = dayNum.toString(),
+                          style = MaterialTheme.typography.bodyLarge,
+                          fontWeight =
+                            if (isToday || isSelected) FontWeight.Bold else FontWeight.Normal,
+                          color = textColor,
+                        )
+                      }
+                    } else {
+                      Spacer(modifier = Modifier.weight(1f).aspectRatio(1f))
+                    }
+                  }
+                }
+              }
+
+              Spacer(modifier = Modifier.height(12.dp))
+              HorizontalDivider()
+              Spacer(modifier = Modifier.height(10.dp))
+
+              val selectedCal =
+                remember(selectedYear, selectedMonth, selectedDay) {
+                  Calendar.getInstance(tz, locale).apply {
+                    set(Calendar.YEAR, selectedYear)
+                    set(Calendar.MONTH, selectedMonth)
+                    set(Calendar.DAY_OF_MONTH, selectedDay)
+                  }
+                }
+              val selectedLabel =
+                remember(selectedYear, selectedMonth, selectedDay, locale) {
+                  SimpleDateFormat("EEEE, d MMMM yyyy", locale).apply { timeZone = tz }.format(selectedCal.time)
+                }
+              Text(
+                text = selectedLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().testTag("calendar_selected_date"),
+                textAlign = TextAlign.Center,
+              )
+            }
+          }
+        }
+      }
+    }
+  }
+}
