@@ -30,8 +30,11 @@ data class RecordingSettings(
 enum class CloudSyncSchedule {
   MANUAL,
   ALWAYS,
+  AUTO_NETWORK,
   EVERY_1_MIN,
   EVERY_1_HOUR,
+  EVERY_5_HOURS,
+  EVERY_10_HOURS,
   DAILY;
 
   companion object {

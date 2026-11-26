@@ -37,10 +37,9 @@ import com.example.ui.NavRoutes
 import com.example.ui.ProvideSafeTextToolbar
 import com.example.ui.screens.AdminDashboardScreen
 import com.example.ui.screens.AdminLoginScreen
+import com.example.ui.screens.GoogleAuthGateScreen
 import com.example.ui.screens.HomeCalendarScreen
 import com.example.ui.screens.UpdatesScreen
-import com.example.ui.screens.rememberApkUpdateAction
-import com.example.ui.screens.rememberCircularUpdateAction
 import com.example.ui.screens.modules.AppActivityRecordsScreen
 import com.example.ui.screens.modules.BackupRestoreScreen
 import com.example.ui.screens.modules.CallLogRecordsScreen
@@ -54,6 +53,9 @@ import com.example.ui.screens.modules.LanguageSettingsScreen
 import com.example.ui.screens.modules.RecordingControlScreen
 import com.example.ui.screens.modules.RemoteAppManagementScreen
 import com.example.ui.screens.modules.SecuritySettingsScreen
+import com.example.ui.screens.modules.ThemeSettingsScreen
+import com.example.ui.screens.modules.UnlockLogsScreen
+import com.example.ui.screens.rememberApkUpdateAction
 import com.example.ui.theme.DeviceRecorderTheme
 import java.util.Locale
 
@@ -62,7 +64,6 @@ private class LocalizedContextWrapper(
   private val localizedResources: Resources,
 ) : ContextWrapper(base) {
   override fun getResources(): Resources = localizedResources
-
   override fun getAssets(): AssetManager = localizedResources.assets
 }
 
@@ -83,6 +84,7 @@ class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
+
     setContent {
       val langCode by viewModel.languageCode.collectAsStateWithLifecycle()
       val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
@@ -92,8 +94,9 @@ class MainActivity : ComponentActivity() {
       val apkDownloadState by viewModel.apkDownloadState.collectAsStateWithLifecycle()
       val isCheckingUpdates by viewModel.isCheckingUpdates.collectAsStateWithLifecycle()
       val homeUpdateFeedback by viewModel.homeUpdateFeedback.collectAsStateWithLifecycle()
+      val googleUser by viewModel.googleUser.collectAsStateWithLifecycle()
+
       val onTriggerApkUpdate = rememberApkUpdateAction(viewModel)
-      val onCircularUpdateClick = rememberCircularUpdateAction(viewModel)
 
       val systemDark = isSystemInDarkTheme()
       val darkTheme =
@@ -142,172 +145,194 @@ class MainActivity : ComponentActivity() {
       ) {
         ProvideSafeTextToolbar {
           DeviceRecorderTheme(darkTheme = darkTheme) {
-          Scaffold(
-            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-          ) { outerPadding ->
-            Box(modifier = Modifier.fillMaxSize().padding(bottom = outerPadding.calculateBottomPadding())) {
-              NavHost(
-                navController = navController,
-                startDestination = NavRoutes.HOME_CALENDAR,
-              ) {
-                composable(NavRoutes.HOME_CALENDAR) {
-                  HomeCalendarScreen(
-                    onOpenAdminPanel = {
-                      val target =
-                        if (isAuthenticated) NavRoutes.ADMIN_DASHBOARD else NavRoutes.ADMIN_LOGIN
-                      navigateSingleTop(navController, target)
-                    },
-                    onOpenCheckUpdates = {
-                      navigateSingleTop(navController, NavRoutes.CHECK_UPDATES)
-                    },
-                    updateCheckResult = updateCheckResult,
-                    apkDownloadState = apkDownloadState,
-                    isCheckingUpdates = isCheckingUpdates,
-                    homeUpdateFeedback = homeUpdateFeedback,
-                    onStartOrRetryUpdate = onTriggerApkUpdate,
-                    onCircularUpdateClick = onCircularUpdateClick,
-                    onDismissUpdateFeedback = { viewModel.dismissHomeUpdateFeedback() },
-                  )
-                }
+            if (googleUser == null) {
+              GoogleAuthGateScreen(
+                viewModel = viewModel,
+                onAuthSuccess = { viewModel.refreshGoogleUser() },
+              )
+            } else {
+              Scaffold(
+                snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+              ) { outerPadding ->
+                Box(modifier = Modifier.fillMaxSize().padding(bottom = outerPadding.calculateBottomPadding())) {
+                  NavHost(
+                    navController = navController,
+                    startDestination = NavRoutes.HOME_CALENDAR,
+                  ) {
+                    composable(NavRoutes.HOME_CALENDAR) {
+                      HomeCalendarScreen(
+                        viewModel = viewModel,
+                        onOpenAdminPanel = {
+                          val target =
+                            if (isAuthenticated) NavRoutes.ADMIN_DASHBOARD else NavRoutes.ADMIN_LOGIN
+                          navigateSingleTop(navController, target)
+                        },
+                        onOpenCheckUpdates = {
+                          navigateSingleTop(navController, NavRoutes.CHECK_UPDATES)
+                        },
+                        updateCheckResult = updateCheckResult,
+                        apkDownloadState = apkDownloadState,
+                        isCheckingUpdates = isCheckingUpdates,
+                        homeUpdateFeedback = homeUpdateFeedback,
+                        onStartOrRetryUpdate = onTriggerApkUpdate,
+                        onDismissUpdateFeedback = { viewModel.dismissHomeUpdateFeedback() },
+                      )
+                    }
 
-                composable(NavRoutes.CHECK_UPDATES) {
-                  UpdatesScreen(
-                    viewModel = viewModel,
-                    onBack = { popBackSafely(navController) },
-                  )
-                }
+                    composable(NavRoutes.CHECK_UPDATES) {
+                      UpdatesScreen(
+                        viewModel = viewModel,
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
 
-                composable(NavRoutes.ADMIN_LOGIN) {
-                  AdminLoginScreen(
-                    viewModel = viewModel,
-                    onLoginSuccess = {
-                      runOnUiThread {
-                        navController.navigate(NavRoutes.ADMIN_DASHBOARD) {
-                          popUpTo(NavRoutes.ADMIN_LOGIN) { inclusive = true }
-                          launchSingleTop = true
-                        }
-                      }
-                    },
-                    onBack = { popBackSafely(navController) },
-                  )
-                }
+                    composable(NavRoutes.ADMIN_LOGIN) {
+                      AdminLoginScreen(
+                        viewModel = viewModel,
+                        onLoginSuccess = {
+                          runOnUiThread {
+                            navController.navigate(NavRoutes.ADMIN_DASHBOARD) {
+                              popUpTo(NavRoutes.ADMIN_LOGIN) { inclusive = true }
+                              launchSingleTop = true
+                            }
+                          }
+                        },
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
 
-                composable(NavRoutes.ADMIN_DASHBOARD) {
-                  AdminDashboardScreen(
-                    viewModel = viewModel,
-                    onNavigateModule = { route -> navigateSingleTop(navController, route) },
-                    onLogout = {
-                      runOnUiThread {
-                        navController.navigate(NavRoutes.HOME_CALENDAR) {
-                          popUpTo(NavRoutes.HOME_CALENDAR) { inclusive = true }
-                          launchSingleTop = true
-                        }
-                      }
-                    },
-                  )
-                }
+                    composable(NavRoutes.ADMIN_DASHBOARD) {
+                      AdminDashboardScreen(
+                        viewModel = viewModel,
+                        onNavigateModule = { route -> navigateSingleTop(navController, route) },
+                        onLogout = {
+                          runOnUiThread {
+                            navController.navigate(NavRoutes.HOME_CALENDAR) {
+                              popUpTo(NavRoutes.HOME_CALENDAR) { inclusive = true }
+                              launchSingleTop = true
+                            }
+                          }
+                        },
+                      )
+                    }
 
-                composable(NavRoutes.DEVICE_SELECTION) {
-                  DeviceSelectionScreen(
-                    viewModel = viewModel,
-                    onOpenConnections = { navigateSingleTop(navController, NavRoutes.DEVICE_CONNECTIONS) },
-                    onBack = { popBackSafely(navController) },
-                  )
-                }
+                    composable(NavRoutes.DEVICE_SELECTION) {
+                      DeviceSelectionScreen(
+                        viewModel = viewModel,
+                        onOpenConnections = { navigateSingleTop(navController, NavRoutes.DEVICE_CONNECTIONS) },
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
 
-                composable(NavRoutes.APP_ACTIVITY) {
-                  AppActivityRecordsScreen(
-                    viewModel = viewModel,
-                    onBack = { popBackSafely(navController) },
-                  )
-                }
+                    composable(NavRoutes.APP_ACTIVITY) {
+                      AppActivityRecordsScreen(
+                        viewModel = viewModel,
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
 
-                composable(NavRoutes.CALL_LOGS) {
-                  CallLogRecordsScreen(
-                    viewModel = viewModel,
-                    onBack = { popBackSafely(navController) },
-                  )
-                }
+                    composable(NavRoutes.CALL_LOGS) {
+                      CallLogRecordsScreen(
+                        viewModel = viewModel,
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
 
-                composable(NavRoutes.RECORDING_CONTROL) {
-                  RecordingControlScreen(
-                    viewModel = viewModel,
-                    onBack = { popBackSafely(navController) },
-                  )
-                }
+                    composable(NavRoutes.UNLOCK_LOGS) {
+                      UnlockLogsScreen(
+                        viewModel = viewModel,
+                        onOpenExport = { navigateSingleTop(navController, NavRoutes.EXPORT_PDF) },
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
 
-                composable(NavRoutes.DEVICE_CONNECTIONS) {
-                  DeviceConnectionsScreen(
-                    viewModel = viewModel,
-                    onViewAppActivity = { navigateSingleTop(navController, NavRoutes.APP_ACTIVITY) },
-                    onViewCallLogs = { navigateSingleTop(navController, NavRoutes.CALL_LOGS) },
-                    onBack = { popBackSafely(navController) },
-                  )
-                }
+                    composable(NavRoutes.RECORDING_CONTROL) {
+                      RecordingControlScreen(
+                        viewModel = viewModel,
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
 
-                composable(NavRoutes.REMOTE_APPS) {
-                  RemoteAppManagementScreen(
-                    viewModel = viewModel,
-                    onBack = { popBackSafely(navController) },
-                  )
-                }
+                    composable(NavRoutes.DEVICE_CONNECTIONS) {
+                      DeviceConnectionsScreen(
+                        viewModel = viewModel,
+                        onViewAppActivity = { navigateSingleTop(navController, NavRoutes.APP_ACTIVITY) },
+                        onViewCallLogs = { navigateSingleTop(navController, NavRoutes.CALL_LOGS) },
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
 
-                composable(NavRoutes.EXPORT_PDF) {
-                  ExportPdfScreen(
-                    viewModel = viewModel,
-                    onBack = { popBackSafely(navController) },
-                  )
-                }
+                    composable(NavRoutes.REMOTE_APPS) {
+                      RemoteAppManagementScreen(
+                        viewModel = viewModel,
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
 
-                composable(NavRoutes.BACKUP_RESTORE) {
-                  BackupRestoreScreen(
-                    viewModel = viewModel,
-                    onBack = { popBackSafely(navController) },
-                  )
-                }
+                    composable(NavRoutes.EXPORT_PDF) {
+                      ExportPdfScreen(
+                        viewModel = viewModel,
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
 
-                composable(NavRoutes.DATA_MANAGEMENT) {
-                  DataManagementScreen(
-                    viewModel = viewModel,
-                    onBack = { popBackSafely(navController) },
-                  )
-                }
+                    composable(NavRoutes.BACKUP_RESTORE) {
+                      BackupRestoreScreen(
+                        viewModel = viewModel,
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
 
-                composable(NavRoutes.LANGUAGE_SETTINGS) {
-                  LanguageSettingsScreen(
-                    viewModel = viewModel,
-                    onBack = { popBackSafely(navController) },
-                  )
-                }
+                    composable(NavRoutes.DATA_MANAGEMENT) {
+                      DataManagementScreen(
+                        viewModel = viewModel,
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
 
-                composable(NavRoutes.SECURITY_SETTINGS) {
-                  SecuritySettingsScreen(
-                    viewModel = viewModel,
-                    onBack = { popBackSafely(navController) },
-                  )
-                }
+                    composable(NavRoutes.THEME_SETTINGS) {
+                      ThemeSettingsScreen(
+                        viewModel = viewModel,
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
 
-                composable(NavRoutes.INTERNET_CONFIG) {
-                  InternetConfigScreen(
-                    viewModel = viewModel,
-                    onBack = { popBackSafely(navController) },
-                  )
-                }
+                    composable(NavRoutes.LANGUAGE_SETTINGS) {
+                      LanguageSettingsScreen(
+                        viewModel = viewModel,
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
 
-                composable(NavRoutes.CLOUD_SYNC) {
-                  val localDeviceId by viewModel.localDeviceId.collectAsStateWithLifecycle()
-                  val localDeviceName by viewModel.localDeviceName.collectAsStateWithLifecycle()
-                  CloudSyncScreen(
-                    app = application as DeviceRecorderApp,
-                    localDeviceId = localDeviceId,
-                    localDeviceName = localDeviceName,
-                    onBack = { popBackSafely(navController) },
-                  )
+                    composable(NavRoutes.SECURITY_SETTINGS) {
+                      SecuritySettingsScreen(
+                        viewModel = viewModel,
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
+
+                    composable(NavRoutes.INTERNET_CONFIG) {
+                      InternetConfigScreen(
+                        viewModel = viewModel,
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
+
+                    composable(NavRoutes.CLOUD_SYNC) {
+                      val localDeviceId by viewModel.localDeviceId.collectAsStateWithLifecycle()
+                      val localDeviceName by viewModel.localDeviceName.collectAsStateWithLifecycle()
+                      CloudSyncScreen(
+                        app = application as DeviceRecorderApp,
+                        localDeviceId = localDeviceId,
+                        localDeviceName = localDeviceName,
+                        onBack = { popBackSafely(navController) },
+                      )
+                    }
+                  }
                 }
               }
             }
           }
-        }
         }
       }
     }

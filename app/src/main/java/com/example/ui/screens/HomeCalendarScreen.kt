@@ -14,21 +14,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,46 +23,24 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.InstallMobile
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SystemUpdate
-import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.NavigationDrawerItem
-import androidx.compose.material3.NavigationDrawerItemDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.minimumInteractiveComponentSize
-import androidx.compose.material3.rememberDrawerState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -84,16 +48,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.example.R
 import com.example.connectivity.UpdateCheckResult
 import com.example.ui.HomeUpdateFeedback
+import com.example.ui.MainViewModel
 import com.example.updates.ApkDownloadState
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
 import java.text.DateFormatSymbols
 import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
+import java.util.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -102,6 +68,7 @@ private val HomeUpdateSuccessGreen = Color(0xFF2E7D32)
 
 @Composable
 fun HomeCalendarScreen(
+  viewModel: MainViewModel,
   onOpenAdminPanel: () -> Unit,
   onOpenCheckUpdates: () -> Unit = {},
   updateCheckResult: UpdateCheckResult = UpdateCheckResult.NotChecked,
@@ -109,16 +76,20 @@ fun HomeCalendarScreen(
   isCheckingUpdates: Boolean = false,
   homeUpdateFeedback: HomeUpdateFeedback = HomeUpdateFeedback.None,
   onStartOrRetryUpdate: () -> Unit = onOpenCheckUpdates,
-  onCircularUpdateClick: () -> Unit = onStartOrRetryUpdate,
   onDismissUpdateFeedback: () -> Unit = {},
 ) {
   val context = LocalContext.current
   val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
   val scope = rememberCoroutineScope()
-
   var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
-  // Listen to system clock / date / timezone broadcasts and keep live clock refreshed
+  val languageCode by viewModel.languageCode.collectAsStateWithLifecycle()
+  val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+  val currentUser = Firebase.auth.currentUser
+  val photoUrl = currentUser?.photoUrl?.toString()
+  val displayName = currentUser?.displayName?.takeIf { it.isNotBlank() } ?: "Google Account"
+  val email = currentUser?.email?.takeIf { it.isNotBlank() } ?: "account@gmail.com"
+
   DisposableEffect(context) {
     val receiver =
       object : BroadcastReceiver() {
@@ -167,27 +138,185 @@ fun HomeCalendarScreen(
   ModalNavigationDrawer(
     drawerState = drawerState,
     drawerContent = {
-      ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
-        Spacer(modifier = Modifier.height(24.dp))
-        Text(
-          text = stringResource(R.string.app_name),
-          style = MaterialTheme.typography.titleLarge,
-          color = MaterialTheme.colorScheme.primary,
-          modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-        )
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-        NavigationDrawerItem(
-          label = { Text(stringResource(R.string.menu_admin_panel)) },
-          icon = { Icon(Icons.Default.AdminPanelSettings, contentDescription = null) },
-          selected = false,
-          onClick = {
-            scope.launch { drawerState.close() }
-            onOpenAdminPanel()
-          },
+      ModalDrawerSheet(modifier = Modifier.width(320.dp)) {
+        Column(
           modifier =
-            Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-              .testTag("drawer_admin_panel"),
-        )
+            Modifier.fillMaxSize()
+              .verticalScroll(rememberScrollState())
+              .padding(16.dp),
+          verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+          Spacer(modifier = Modifier.height(8.dp))
+
+          // 1. Authenticated User Profile & Full Details
+          Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.fillMaxWidth().testTag("drawer_user_profile_card"),
+          ) {
+            Row(
+              modifier = Modifier.padding(14.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+              if (!photoUrl.isNullOrBlank()) {
+                AsyncImage(
+                  model = photoUrl,
+                  contentDescription = displayName,
+                  contentScale = ContentScale.Crop,
+                  modifier = Modifier.size(50.dp).clip(CircleShape),
+                )
+              } else {
+                Surface(
+                  shape = CircleShape,
+                  color = MaterialTheme.colorScheme.primary,
+                  modifier = Modifier.size(50.dp),
+                ) {
+                  Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    Icon(
+                      imageVector = Icons.Default.Person,
+                      contentDescription = null,
+                      tint = MaterialTheme.colorScheme.onPrimary,
+                      modifier = Modifier.size(26.dp),
+                    )
+                  }
+                }
+              }
+              Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                  text = displayName,
+                  style = MaterialTheme.typography.titleMedium,
+                  fontWeight = FontWeight.Bold,
+                  color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                Text(
+                  text = email,
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
+                )
+              }
+            }
+          }
+
+          HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+          // 2. Language Selection
+          Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+              modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            ) {
+              Icon(
+                Icons.Default.Language,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+              )
+              Text(
+                "Language Selection",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+              )
+            }
+            val languages =
+              listOf(
+                "en" to "English",
+                "hi" to "हिन्दी (Hindi)",
+                "ar" to "العربية (Arabic)",
+                "es" to "Español (Spanish)",
+                "fr" to "Français (French)",
+              )
+            languages.forEach { (code, label) ->
+              NavigationDrawerItem(
+                label = { Text(label) },
+                selected = languageCode == code,
+                onClick = {
+                  viewModel.setLanguageCode(code)
+                },
+                modifier =
+                  Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                    .testTag("lang_$code"),
+              )
+            }
+          }
+
+          HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+          // 3. Display Theme Modes
+          Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+              modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            ) {
+              Icon(
+                Icons.Default.Contrast,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+              )
+              Text(
+                "Display Theme Modes",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+              )
+            }
+            val themes =
+              listOf(
+                "system" to "Default Mode",
+                "light" to "Bright / Light Mode",
+                "dark" to "Dark Mode",
+              )
+            themes.forEach { (mode, label) ->
+              NavigationDrawerItem(
+                label = { Text(label) },
+                selected = themeMode == mode,
+                onClick = {
+                  viewModel.setThemeMode(mode)
+                },
+                modifier =
+                  Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                    .testTag("theme_$mode"),
+              )
+            }
+          }
+
+          HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+          // 4. Update Option
+          NavigationDrawerItem(
+            label = { Text(stringResource(R.string.menu_check_updates)) },
+            icon = { Icon(Icons.Default.SystemUpdate, contentDescription = null) },
+            selected = false,
+            onClick = {
+              scope.launch { drawerState.close() }
+              onOpenCheckUpdates()
+            },
+            modifier =
+              Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                .testTag("drawer_update_option"),
+          )
+
+          Spacer(modifier = Modifier.weight(1f))
+          HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+          // 5. Admin Dashboard / Admin Login (At very bottom)
+          NavigationDrawerItem(
+            label = { Text(stringResource(R.string.menu_admin_panel)) },
+            icon = { Icon(Icons.Default.AdminPanelSettings, contentDescription = null) },
+            selected = false,
+            onClick = {
+              scope.launch { drawerState.close() }
+              onOpenAdminPanel()
+            },
+            modifier =
+              Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                .testTag("drawer_admin_panel"),
+          )
+        }
       }
     },
   ) {
@@ -195,20 +324,6 @@ fun HomeCalendarScreen(
       contentWindowInsets = WindowInsets(0, 0, 0, 0),
       containerColor = MaterialTheme.colorScheme.background,
     ) { innerPadding ->
-      val isUpdateBusy = isCheckingUpdates || apkDownloadState is ApkDownloadState.Downloading
-      val infiniteTransition = rememberInfiniteTransition(label = "home_update_spin")
-      val spinAngle by
-        infiniteTransition.animateFloat(
-          initialValue = 0f,
-          targetValue = 360f,
-          animationSpec =
-            infiniteRepeatable(
-              animation = tween(durationMillis = 900, easing = LinearEasing),
-              repeatMode = RepeatMode.Restart,
-            ),
-          label = "home_update_rotation",
-        )
-
       Column(
         modifier =
           Modifier.fillMaxSize()
@@ -217,7 +332,7 @@ fun HomeCalendarScreen(
             .padding(top = 8.dp, start = 20.dp, end = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
       ) {
-        // Minimal top row: left 3-line hamburger icon & right circular rotating update icon
+        // Top row: left hamburger menu & right circular user avatar (circle crop)
         Row(
           modifier = Modifier.fillMaxWidth(),
           horizontalArrangement = Arrangement.SpaceBetween,
@@ -235,34 +350,33 @@ fun HomeCalendarScreen(
             )
           }
 
+          // Top-right circular user profile avatar
           Surface(
             shape = CircleShape,
-            color =
-              if (isUpdateBusy) MaterialTheme.colorScheme.primary
-              else MaterialTheme.colorScheme.primaryContainer,
-            contentColor =
-              if (isUpdateBusy) MaterialTheme.colorScheme.onPrimary
-              else MaterialTheme.colorScheme.onPrimaryContainer,
-            tonalElevation = 2.dp,
+            color = MaterialTheme.colorScheme.primaryContainer,
             modifier =
-              Modifier.minimumInteractiveComponentSize()
-                .size(44.dp)
+              Modifier.size(44.dp)
                 .clip(CircleShape)
-                .border(
-                  1.dp,
-                  MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                  CircleShape,
-                )
-                .clickable(enabled = !isUpdateBusy, onClick = onCircularUpdateClick)
-                .testTag("home_circular_update_button"),
+                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f), CircleShape)
+                .clickable { scope.launch { drawerState.open() } }
+                .testTag("home_user_avatar_button"),
           ) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-              Icon(
-                imageVector = Icons.Default.Autorenew,
-                contentDescription = stringResource(R.string.update_circular_button_cd),
-                modifier =
-                  Modifier.size(24.dp).rotate(if (isUpdateBusy) spinAngle else 0f),
+            if (!photoUrl.isNullOrBlank()) {
+              AsyncImage(
+                model = photoUrl,
+                contentDescription = displayName,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().clip(CircleShape),
               )
+            } else {
+              Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Icon(
+                  imageVector = Icons.Default.Person,
+                  contentDescription = null,
+                  tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                  modifier = Modifier.size(22.dp),
+                )
+              }
             }
           }
         }
@@ -323,7 +437,6 @@ fun HomeCalendarScreen(
               SimpleDateFormat("hh:mm a", locale).apply { timeZone = tz }.format(Date(nowMillis))
             }
 
-          // Clean live date & time header
           Surface(
             shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surface,
@@ -423,10 +536,10 @@ fun HomeCalendarScreen(
                         displayedMonth -= 1
                       }
                     },
-                    modifier = Modifier.minimumInteractiveComponentSize().testTag("calendar_prev_month"),
+                    modifier = Modifier.testTag("calendar_prev_month"),
                   ) {
                     Icon(
-                      Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                      imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                       contentDescription = stringResource(R.string.calendar_prev_month_cd),
                     )
                   }
@@ -439,10 +552,10 @@ fun HomeCalendarScreen(
                         displayedMonth += 1
                       }
                     },
-                    modifier = Modifier.minimumInteractiveComponentSize().testTag("calendar_next_month"),
+                    modifier = Modifier.testTag("calendar_next_month"),
                   ) {
                     Icon(
-                      Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                      imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                       contentDescription = stringResource(R.string.calendar_next_month_cd),
                     )
                   }
@@ -451,36 +564,57 @@ fun HomeCalendarScreen(
 
               Spacer(modifier = Modifier.height(16.dp))
 
-              // Day of week headers (Sun .. Sat)
-              val shortWeekdays = remember(locale) { DateFormatSymbols(locale).shortWeekdays }
-              Row(modifier = Modifier.fillMaxWidth()) {
-                for (dow in Calendar.SUNDAY..Calendar.SATURDAY) {
-                  Text(
-                    text = shortWeekdays[dow].take(3),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
+              val daysOfWeek = DateFormatSymbols(locale).shortWeekdays
+              Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                for (dow in 1..7) {
+                  val dayName =
+                    try {
+                      daysOfWeek[dow]
+                    } catch (_: Exception) {
+                      ""
+                    }
+                  Box(
                     modifier = Modifier.weight(1f),
-                  )
+                    contentAlignment = Alignment.Center,
+                  ) {
+                    Text(
+                      text = dayName.take(2).uppercase(locale),
+                      style = MaterialTheme.typography.labelMedium,
+                      fontWeight = FontWeight.Bold,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                  }
                 }
               }
 
-              Spacer(modifier = Modifier.height(10.dp))
+              Spacer(modifier = Modifier.height(12.dp))
 
-              val firstDayOfWeek = monthCal.get(Calendar.DAY_OF_WEEK) // 1 = Sun
-              val leadingBlanks = firstDayOfWeek - Calendar.SUNDAY
+              val firstDayOfWeek = monthCal.get(Calendar.DAY_OF_WEEK)
               val daysInMonth = monthCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-              val totalCells = ((leadingBlanks + daysInMonth + 6) / 7) * 7
+              val firstDayIndex = (firstDayOfWeek - monthCal.firstDayOfWeek + 7) % 7
+              val totalCells = ((firstDayIndex + daysInMonth + 6) / 7) * 7
 
-              for (rowStart in 0 until totalCells step 7) {
+              val calendarCells = remember(displayedYear, displayedMonth, firstDayIndex, daysInMonth, totalCells) {
+                val list = mutableListOf<Int?>()
+                for (i in 0 until totalCells) {
+                  val dayNum = i - firstDayIndex + 1
+                  if (dayNum in 1..daysInMonth) {
+                    list.add(dayNum)
+                  } else {
+                    list.add(null)
+                  }
+                }
+                list
+              }
+
+              val weeks = calendarCells.chunked(7)
+              for (week in weeks) {
                 Row(
-                  modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                  horizontalArrangement = Arrangement.spacedBy(4.dp),
+                  modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                  horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                  for (col in 0 until 7) {
-                    val cellIndex = rowStart + col
-                    val dayNum = cellIndex - leadingBlanks + 1
-                    if (dayNum in 1..daysInMonth) {
+                  for (dayNum in week) {
+                    if (dayNum != null) {
                       val isToday =
                         displayedYear == currentYear &&
                           displayedMonth == currentMonth &&
@@ -492,9 +626,9 @@ fun HomeCalendarScreen(
 
                       val bgColor =
                         when {
-                          isToday -> MaterialTheme.colorScheme.primary
                           isSelected -> MaterialTheme.colorScheme.secondaryContainer
-                          else -> MaterialTheme.colorScheme.surface
+                          isToday -> MaterialTheme.colorScheme.primary
+                          else -> Color.Transparent
                         }
                       val textColor =
                         when {
@@ -547,6 +681,7 @@ fun HomeCalendarScreen(
                 remember(selectedYear, selectedMonth, selectedDay, locale) {
                   SimpleDateFormat("EEEE, d MMMM yyyy", locale).apply { timeZone = tz }.format(selectedCal.time)
                 }
+
               Text(
                 text = selectedLabel,
                 style = MaterialTheme.typography.labelSmall,
@@ -646,7 +781,6 @@ private fun HomeRedUpdateBanner(
           )
         }
       }
-
       if (downloadState is ApkDownloadState.Downloading) {
         if (downloadState.progressPercent >= 0) {
           LinearProgressIndicator(
@@ -731,7 +865,7 @@ private fun HomeUpdateFeedbackChip(
         modifier = Modifier.size(32.dp).testTag("home_update_status_dismiss"),
       ) {
         Icon(
-          imageVector = Icons.Default.Close,
+          imageVector = Icons.Default.ErrorOutline,
           contentDescription = "Dismiss",
           tint = fgColor,
           modifier = Modifier.size(18.dp),

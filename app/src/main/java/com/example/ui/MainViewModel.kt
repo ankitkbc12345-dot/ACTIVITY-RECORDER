@@ -28,6 +28,9 @@ import com.example.export.BackupRestoreSummary
 import com.example.export.EncryptedBackupManager
 import com.example.export.PdfReportGenerator
 import com.example.export.PdfReportRequest
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.auth
 import com.example.monitoring.BatteryStatusInfo
 import com.example.monitoring.BatteryUtils
 import com.example.monitoring.CallLogReader
@@ -84,6 +87,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   val wifiDirectManager = app.wifiDirectManager
   val internetManager = app.internetManager
   val appUpdateManager = AppUpdateManager(app, internetManager::isInternetAvailable)
+
+  private val _googleUser = MutableStateFlow<FirebaseUser?>(runCatching { Firebase.auth.currentUser }.getOrNull())
+  val googleUser: StateFlow<FirebaseUser?> = _googleUser.asStateFlow()
+
+  fun refreshGoogleUser() {
+    _googleUser.value = runCatching { Firebase.auth.currentUser }.getOrNull()
+  }
 
   private val _localDeviceId = MutableStateFlow("DEV-LOCAL")
   val localDeviceId: StateFlow<String> = _localDeviceId.asStateFlow()
@@ -1044,6 +1054,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
       refreshStorageMetrics()
       _statusBanner.value = "Removed $deleted call log record(s)."
+    }
+  }
+
+  fun pruneData(
+    pruneCallLogs: Boolean,
+    pruneActivity: Boolean,
+    pruneUnlocks: Boolean,
+    olderThanDays: Int?,
+  ) {
+    recordUserActivity()
+    viewModelScope.launch {
+      val targetId = _activeDeviceId.value
+      var totalDeleted = 0
+      val cutoff = olderThanDays?.let { System.currentTimeMillis() - (it * 86_400_000L) }
+      if (pruneActivity) {
+        val deleted = if (cutoff == null) db.appActivityDao().deleteEventsForDevice(targetId)
+                      else db.appActivityDao().deleteEventsOlderThan(targetId, cutoff)
+        totalDeleted += deleted
+      }
+      if (pruneCallLogs) {
+        val deleted = if (cutoff == null) db.callLogDao().deleteCallLogsForDevice(targetId)
+                      else db.callLogDao().deleteCallLogsOlderThan(targetId, cutoff)
+        totalDeleted += deleted
+      }
+      if (pruneUnlocks) {
+        val deleted = if (cutoff == null) db.unlockEventDao().deleteUnlockEventsForDevice(targetId)
+                      else db.unlockEventDao().deleteUnlockEventsOlderThan(targetId, cutoff)
+        totalDeleted += deleted
+      }
+      refreshStorageMetrics()
+      _statusBanner.value = "Pruning completed: purged $totalDeleted record(s)."
     }
   }
 

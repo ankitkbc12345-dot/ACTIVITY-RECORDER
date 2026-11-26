@@ -233,7 +233,7 @@ fun CallLogRecordsScreen(
         val filtered =
           remember(callLogs, numberQuery, dateFilter, typeFilter) {
             callLogs.filter { log ->
-              (numberQuery.isBlank() || log.phoneNumber.contains(numberQuery, ignoreCase = true)) &&
+              (numberQuery.isBlank() || log.phoneNumber.contains(numberQuery, ignoreCase = true) || log.contactName.contains(numberQuery, ignoreCase = true)) &&
                 (dateFilter.isBlank() || log.callDate.contains(dateFilter.trim())) &&
                 (typeFilter == "ALL" || log.callType == typeFilter)
             }
@@ -295,7 +295,8 @@ fun CallLogRecordsScreen(
                     }
                   Icon(icon, contentDescription = log.callType, tint = tint)
                   Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(log.phoneNumber, style = MaterialTheme.typography.titleMedium)
+                    val titleText = if (log.contactName.isNotBlank()) "${log.contactName} (${log.phoneNumber})" else log.phoneNumber
+                    Text(titleText, style = MaterialTheme.typography.titleMedium)
                     Text(
                       "${log.callDate} • ${log.callTime} • Duration: ${DateTimeUtils.formatDuration(log.durationSeconds)}",
                       style = MaterialTheme.typography.bodyMedium,

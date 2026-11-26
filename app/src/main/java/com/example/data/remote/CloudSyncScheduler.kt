@@ -43,9 +43,12 @@ object CloudSyncScheduler {
       when (schedule) {
         CloudSyncSchedule.MANUAL -> return
         CloudSyncSchedule.ALWAYS -> builder.setPeriodic(15 * 60_000L).build()
+        CloudSyncSchedule.AUTO_NETWORK -> builder.setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY).build()
         CloudSyncSchedule.EVERY_1_MIN ->
           builder.setMinimumLatency(60_000L).setOverrideDeadline(90_000L).build()
         CloudSyncSchedule.EVERY_1_HOUR -> builder.setPeriodic(60 * 60_000L).build()
+        CloudSyncSchedule.EVERY_5_HOURS -> builder.setPeriodic(5 * 60 * 60_000L).build()
+        CloudSyncSchedule.EVERY_10_HOURS -> builder.setPeriodic(10 * 60 * 60_000L).build()
         CloudSyncSchedule.DAILY -> {
           val delay = computeDelayUntilNextTimeMillis(dailyHour, dailyMinute)
           builder.setMinimumLatency(delay).setOverrideDeadline(delay + 15 * 60_000L).build()

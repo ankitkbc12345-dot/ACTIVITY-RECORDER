@@ -43,7 +43,6 @@ fun RecordingControlScreen(
 ) {
   val recording by viewModel.recordingSettings.collectAsStateWithLifecycle()
   val hasCallPerm by viewModel.callLogPermissionGranted.collectAsStateWithLifecycle()
-
   val callPermLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
       viewModel.refreshPermissionStates()
@@ -181,6 +180,43 @@ fun RecordingControlScreen(
               }
             },
             modifier = Modifier.testTag("switch_call_log"),
+          )
+        }
+      }
+
+      // 3. Device Screen Unlock Tracking
+      val unlockOperational = recording.masterEnabled && recording.unlockTrackingEnabled
+      Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        modifier =
+          Modifier.fillMaxWidth()
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp)),
+      ) {
+        Row(
+          modifier = Modifier.padding(18.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+          Column(modifier = Modifier.weight(1f).padding(end = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Device Screen Unlock Tracking", style = MaterialTheme.typography.titleMedium)
+            Text(
+              text =
+                when {
+                  !recording.masterEnabled -> "Status: Paused (Master Recording is OFF)"
+                  !recording.unlockTrackingEnabled -> "Status: Disabled"
+                  else -> "Status: Active (Tracking unlocks, method & battery)"
+                },
+              style = MaterialTheme.typography.labelSmall,
+              color =
+                if (unlockOperational) MaterialTheme.colorScheme.secondary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+          Switch(
+            checked = recording.unlockTrackingEnabled,
+            onCheckedChange = { viewModel.setUnlockTrackingEnabled(it) },
+            modifier = Modifier.testTag("switch_unlock_tracking"),
           )
         }
       }

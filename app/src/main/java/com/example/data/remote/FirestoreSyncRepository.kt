@@ -2,7 +2,11 @@ package com.example.data.remote
 
 import android.content.Context
 import com.example.R
+import com.example.data.local.AppActivityEventEntity
 import com.example.data.local.AppDatabase
+import com.example.data.local.CallLogEntity
+import com.example.data.local.DeviceUnlockEventEntity
+import com.example.monitoring.DateTimeUtils
 import com.example.security.CryptoManager
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
@@ -357,6 +361,94 @@ class FirestoreSyncRepository(
       throw e
     } catch (e: Exception) {
       handleFirestoreError(e, OperationType.DELETE, docPath)
+      Result.failure(e)
+    }
+  }
+
+  suspend fun restoreDataFromCloud(
+    localDb: AppDatabase,
+    targetDeviceId: String,
+  ): Result<Int> {
+    var docPath = "users/${auth.currentUser?.uid ?: "unauthenticated"}/activity_records"
+    return try {
+      val uid = requireUserId()
+      val snapshot =
+        db.collection("users").document(uid).collection("activity_records")
+          .limit(200)
+          .get()
+          .await()
+
+      var restoredCount = 0
+      for (doc in snapshot.documents) {
+        val cat = doc.getString("recordCategory") ?: continue
+        val recDeviceId = doc.getString("deviceId") ?: targetDeviceId
+        val title = doc.getString("title") ?: "Restored Item"
+        val subtitle = doc.getString("subtitle") ?: ""
+        val detail = doc.getString("detail") ?: ""
+        val date = doc.getString("eventDate") ?: DateTimeUtils.formatDate(System.currentTimeMillis())
+        val time = doc.getString("eventTime") ?: DateTimeUtils.formatTime(System.currentTimeMillis())
+        val timestamp = doc.getLong("recordedAtMillis") ?: System.currentTimeMillis()
+
+        when (cat) {
+          CloudRecordCategory.APP_EVENT.name -> {
+            val ev = AppActivityEventEntity(
+              deviceId = recDeviceId,
+              appName = title,
+              packageName = subtitle.ifBlank { "com.restored.app" },
+              versionName = "1.0",
+              eventType = if (detail.contains("UNINSTALLED")) "UNINSTALLED" else "INSTALLED",
+              installerPackage = null,
+              installerLabel = "Cloud Restored",
+              eventDate = date,
+              eventTime = time,
+              timestampMillis = timestamp,
+              isImportedSnapshot = true,
+              importedAtMillis = System.currentTimeMillis(),
+            )
+            localDb.appActivityDao().insertEvent(ev)
+            restoredCount++
+          }
+          CloudRecordCategory.CALL_LOG.name -> {
+            val call = CallLogEntity(
+              id = "RESTORED_${doc.id}",
+              deviceId = recDeviceId,
+              callLogId = doc.id.hashCode().toLong(),
+              phoneNumber = if (appContext != null) CryptoManager.encryptField(appContext, subtitle.ifBlank { "Unknown" }) else subtitle,
+              contactName = if (appContext != null) CryptoManager.encryptField(appContext, title) else title,
+              callType = if (title.contains("OUTGOING")) "OUTGOING" else if (title.contains("MISSED")) "MISSED" else "INCOMING",
+              callDate = date,
+              callTime = time,
+              durationSeconds = 30L,
+              timestampMillis = timestamp,
+              isImportedSnapshot = true,
+              importedAtMillis = System.currentTimeMillis(),
+            )
+            localDb.callLogDao().upsertCallLogs(listOf(call))
+            restoredCount++
+          }
+          CloudRecordCategory.UNLOCK_LOG.name -> {
+            val unlock = DeviceUnlockEventEntity(
+              id = "RESTORED_${doc.id}",
+              deviceId = recDeviceId,
+              unlockMethod = title,
+              unlockCategory = "SWIPE_OR_NONE",
+              unlockDate = date,
+              unlockTime = time,
+              timestampMillis = timestamp,
+              source = "CLOUD_RESTORE",
+              isImportedSnapshot = true,
+              importedAtMillis = System.currentTimeMillis(),
+            )
+            localDb.unlockEventDao().upsertUnlockEvent(unlock)
+            restoredCount++
+          }
+        }
+      }
+      Result.success(restoredCount)
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      handleFirestoreError(e, OperationType.GET, docPath)
       Result.failure(e)
     }
   }

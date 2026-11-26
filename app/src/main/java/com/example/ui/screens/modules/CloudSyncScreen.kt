@@ -23,6 +23,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.horizontalScroll
+import com.example.data.preferences.CloudSyncSchedule
+import com.example.data.preferences.CloudSyncPreferences
+import com.example.data.remote.CloudSyncScheduler
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.CloudUpload
@@ -99,12 +106,12 @@ sealed interface CloudUiState<out T> {
 }
 
 class CloudSyncViewModel(
-  private val app: DeviceRecorderApp,
+  val appInstance: DeviceRecorderApp,
   private val repository: FirestoreSyncRepository,
   @Suppress("unused") private val currentUserId: String,
 ) : ViewModel() {
 
-  private val databaseId = app.getString(R.string.firestore_database_id)
+  private val databaseId = appInstance.getString(R.string.firestore_database_id)
 
   private val _isSyncing = MutableStateFlow(false)
   val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
@@ -162,6 +169,28 @@ class CloudSyncViewModel(
         initialValue = CloudUiState.Loading,
       )
 
+  fun restoreFromCloud(targetDeviceId: String) {
+    if (_isSyncing.value) return
+    viewModelScope.launch {
+      _isSyncing.value = true
+      _statusMessage.value = null
+      try {
+        val result = repository.restoreDataFromCloud(appInstance.database, targetDeviceId)
+        _statusMessage.value =
+          result.fold(
+            onSuccess = { count ->
+              "Restored $count record(s) from Firebase Cloud into local database."
+            },
+            onFailure = { err ->
+              "Restore failed: ${formatUserFacingFirestoreError(err, databaseId = databaseId)}"
+            },
+          )
+      } finally {
+        _isSyncing.value = false
+      }
+    }
+  }
+
   fun syncLocalDevice(localDeviceId: String, localDeviceName: String, summaryNote: String?) {
     if (_isSyncing.value) return
     viewModelScope.launch {
@@ -170,7 +199,7 @@ class CloudSyncViewModel(
       try {
         val result =
           repository.syncLocalDeviceToCloud(
-            localDb = app.database,
+            localDb = appInstance.database,
             localDeviceId = localDeviceId,
             localDeviceName = localDeviceName,
             summaryNote = summaryNote,
@@ -495,6 +524,42 @@ private fun CloudSyncAuthenticatedScreen(
               modifier = Modifier.fillMaxWidth().testTag("cloud_sync_note_field"),
             )
 
+            val prefs by viewModel.appInstance.settingsStore.cloudSyncPreferencesFlow.collectAsStateWithLifecycle(initialValue = CloudSyncPreferences())
+            val coroutineScope = rememberCoroutineScope()
+            val currentContext = LocalContext.current
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+              Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text("Sync Frequency / Schedule:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+              }
+              Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+              ) {
+                listOf(
+                  CloudSyncSchedule.ALWAYS to "Always On",
+                  CloudSyncSchedule.AUTO_NETWORK to "Auto on Net",
+                  CloudSyncSchedule.EVERY_1_MIN to "1 Min",
+                  CloudSyncSchedule.EVERY_1_HOUR to "1 Hour",
+                  CloudSyncSchedule.EVERY_5_HOURS to "5 Hours",
+                  CloudSyncSchedule.EVERY_10_HOURS to "10 Hours",
+                  CloudSyncSchedule.DAILY to "Daily",
+                ).forEach { (sched, label) ->
+                  FilterChip(
+                    selected = prefs.schedule == sched,
+                    onClick = {
+                      coroutineScope.launch {
+                        viewModel.appInstance.settingsStore.setCloudSyncSchedule(sched)
+                        CloudSyncScheduler.applySchedule(currentContext, sched, prefs.dailyHour, prefs.dailyMinute)
+                      }
+                    },
+                    label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                  )
+                }
+              }
+            }
+
             Button(
               onClick = {
                 viewModel.syncLocalDevice(
@@ -519,6 +584,18 @@ private fun CloudSyncAuthenticatedScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Sync $localDeviceName to Cloud")
               }
+            }
+
+            OutlinedButton(
+              onClick = {
+                viewModel.restoreFromCloud(localDeviceId)
+              },
+              enabled = !isSyncing,
+              modifier = Modifier.fillMaxWidth().height(48.dp).testTag("cloud_restore_button"),
+            ) {
+              Icon(Icons.Default.CloudDownload, contentDescription = null)
+              Spacer(modifier = Modifier.width(8.dp))
+              Text("Cloud Recovery / Restore Data from Cloud")
             }
 
             if (statusMessage != null) {

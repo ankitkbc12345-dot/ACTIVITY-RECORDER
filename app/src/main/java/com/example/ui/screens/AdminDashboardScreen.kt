@@ -2,16 +2,7 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -19,28 +10,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Backup
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.CloudSync
-import androidx.compose.material.icons.filled.Contrast
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.FiberManualRecord
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.SettingsRemote
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -49,11 +20,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
+import com.example.security.CryptoManager
 import com.example.ui.MainViewModel
 import com.example.ui.NavRoutes
+import com.google.firebase.Firebase
+import com.google.firebase.auth.auth
 
 private data class DashboardModuleItem(
   val titleRes: Int,
@@ -77,8 +52,18 @@ fun AdminDashboardScreen(
   val recording by viewModel.recordingSettings.collectAsStateWithLifecycle()
   val batteryStatus by viewModel.batteryStatus.collectAsStateWithLifecycle()
   val cloudPrefs by viewModel.cloudSyncPreferences.collectAsStateWithLifecycle()
-  val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
 
+  val currentUser = Firebase.auth.currentUser
+  val currentUserName = currentUser?.displayName?.takeIf { it.isNotBlank() } ?: "Google Account"
+  val currentUserEmail = currentUser?.email?.takeIf { it.isNotBlank() } ?: "account@gmail.com"
+  val deviceModelName = CryptoManager.getLocalDeviceModel()
+
+  // Strict Point 9, 12, 14:
+  // - Removed Device Connection Management (duplicate of Device Selection)
+  // - Removed Backup & Restore
+  // - Removed Theme Mode (now in navigation drawer)
+  // - Removed Language Settings (now in navigation drawer)
+  // - Preserved Security Settings intact
   val modules =
     listOf(
       DashboardModuleItem(
@@ -117,13 +102,6 @@ fun AdminDashboardScreen(
         "mod_recording_control",
       ),
       DashboardModuleItem(
-        R.string.module_device_connections,
-        "Bluetooth, Wi-Fi Direct & Internet",
-        Icons.Default.Sync,
-        NavRoutes.DEVICE_CONNECTIONS,
-        "mod_device_connections",
-      ),
-      DashboardModuleItem(
         R.string.module_remote_apps,
         "Authorized device uninstall",
         Icons.Default.SettingsRemote,
@@ -138,36 +116,11 @@ fun AdminDashboardScreen(
         "mod_export_pdf",
       ),
       DashboardModuleItem(
-        R.string.module_backup_restore,
-        "Encrypted offline .pdrbak",
-        Icons.Default.Backup,
-        NavRoutes.BACKUP_RESTORE,
-        "mod_backup_restore",
-      ),
-      DashboardModuleItem(
         R.string.module_data_management,
         "Database storage & pruning",
         Icons.Default.DeleteSweep,
         NavRoutes.DATA_MANAGEMENT,
         "mod_data_management",
-      ),
-      DashboardModuleItem(
-        R.string.module_theme,
-        when (themeMode) {
-          "system" -> "Active: Default Mode"
-          "dark" -> "Active: Dark Mode"
-          else -> "Active: Bright Mode"
-        },
-        Icons.Default.Contrast,
-        NavRoutes.THEME_SETTINGS,
-        "mod_theme_settings",
-      ),
-      DashboardModuleItem(
-        R.string.module_language,
-        "Offline interface localization",
-        Icons.Default.Language,
-        NavRoutes.LANGUAGE_SETTINGS,
-        "mod_language",
       ),
       DashboardModuleItem(
         R.string.module_security,
@@ -210,6 +163,7 @@ fun AdminDashboardScreen(
       verticalArrangement = Arrangement.spacedBy(12.dp),
       modifier = Modifier.fillMaxSize().padding(innerPadding).testTag("dashboard_grid"),
     ) {
+      // Point 4: Non-interactive Live Telemetry Banner (no click handler on tap, preserves aspect ratio/dimensions)
       item(span = { GridItemSpan(maxLineSpan) }) {
         val isLocal = activeId == localId
         Surface(
@@ -219,42 +173,39 @@ fun AdminDashboardScreen(
             else MaterialTheme.colorScheme.tertiaryContainer,
           modifier =
             Modifier.fillMaxWidth()
-              .clickable {
-                viewModel.recordUserActivity()
-                onNavigateModule(NavRoutes.DEVICE_SELECTION)
-              },
+              .testTag("dashboard_telemetry_banner"),
         ) {
           Row(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
           ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
               Text(
-                text = stringResource(R.string.dashboard_active_scope),
-                style = MaterialTheme.typography.labelSmall,
+                text = "$currentUserName • $currentUserEmail",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
                 color =
                   if (isLocal) MaterialTheme.colorScheme.onPrimaryContainer
                   else MaterialTheme.colorScheme.onTertiaryContainer,
               )
-              Spacer(modifier = Modifier.height(4.dp))
               Text(
                 text =
-                  if (isLocal) "$localName ($localId) • Live Local"
-                  else "${activePaired?.deviceName ?: activeId} • Imported Snapshot",
+                  if (isLocal) "$localName ($deviceModelName) • Live Local"
+                  else "${activePaired?.deviceName ?: activeId} ($deviceModelName) • Snapshot",
                 style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
                 color =
                   if (isLocal) MaterialTheme.colorScheme.onPrimaryContainer
                   else MaterialTheme.colorScheme.onTertiaryContainer,
               )
-              Spacer(modifier = Modifier.height(4.dp))
               Text(
                 text =
-                  "${stringResource(R.string.battery_status_label)}: ${batteryStatus.statusLabel}  •  Cloud: ${cloudPrefs.schedule.name}",
-                style = MaterialTheme.typography.labelSmall,
+                  "Battery: ${batteryStatus.statusLabel}  •  Cloud: ${cloudPrefs.schedule.name}",
+                style = MaterialTheme.typography.bodySmall,
                 color =
-                  if (isLocal) MaterialTheme.colorScheme.onPrimaryContainer
-                  else MaterialTheme.colorScheme.onTertiaryContainer,
+                  if (isLocal) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
+                  else MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.85f),
               )
             }
             Icon(
@@ -263,6 +214,7 @@ fun AdminDashboardScreen(
               tint =
                 if (isLocal) MaterialTheme.colorScheme.onPrimaryContainer
                 else MaterialTheme.colorScheme.onTertiaryContainer,
+              modifier = Modifier.size(32.dp),
             )
           }
         }

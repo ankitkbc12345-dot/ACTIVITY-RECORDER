@@ -78,6 +78,12 @@ class DeviceRecorderApp : Application() {
 
   override fun onCreate() {
     super.onCreate()
+    try {
+      if (com.google.firebase.FirebaseApp.getApps(this).isEmpty()) {
+        com.google.firebase.FirebaseApp.initializeApp(this)
+      }
+    } catch (_: Exception) {
+    }
     appScope.launch {
       settingsStore.ensureInitialProvisioning()
       val localId = settingsStore.getLocalDeviceId()
@@ -144,7 +150,8 @@ class DeviceRecorderApp : Application() {
               appScope.launch {
                 while (true) {
                   delay(60_000L)
-                  if (Firebase.auth.currentUser != null) {
+                  val hasUser = runCatching { Firebase.auth.currentUser }.getOrNull() != null
+                  if (hasUser) {
                     CloudSyncScheduler.runSyncNow(this@DeviceRecorderApp, summaryNote = "Auto 1-min sync")
                   }
                 }
@@ -161,8 +168,9 @@ class DeviceRecorderApp : Application() {
           database.unlockEventDao().observeUnlockEventsForDevice(localDeviceId),
           settingsStore.cloudSyncPreferencesFlow,
         ) { calls, events, unlocks, prefs ->
+          val hasUser = runCatching { Firebase.auth.currentUser }.getOrNull() != null
           Triple(
-            prefs.schedule == CloudSyncSchedule.ALWAYS && Firebase.auth.currentUser != null,
+            prefs.schedule == CloudSyncSchedule.ALWAYS && hasUser,
             "${calls.size}:${events.size}:${unlocks.size}:${prefs.syncCallLogs}:${prefs.syncAppActivity}:${prefs.syncUnlockLogs}",
             prefs,
           )
