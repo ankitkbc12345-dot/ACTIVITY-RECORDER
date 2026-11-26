@@ -31,7 +31,6 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
-import com.example.R
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
@@ -52,6 +51,11 @@ tailrec fun Context.findActivity(): Activity? =
     else -> null
   }
 
+private fun Context.googleWebClientId(): String? {
+  val id = resources.getIdentifier("default_web_client_id", "string", packageName)
+  return if (id != 0) getString(id) else null
+}
+
 fun attemptAutoSignIn(
   context: Context,
   credentialManager: CredentialManager,
@@ -63,13 +67,11 @@ fun attemptAutoSignIn(
     onAuthSuccess()
     return
   }
-  val clientId =
-    try {
-      context.getString(R.string.default_web_client_id)
-    } catch (_: Exception) {
-      onUnauthenticated()
-      return
-    }
+  val clientId = context.googleWebClientId()
+  if (clientId.isNullOrBlank()) {
+    onUnauthenticated()
+    return
+  }
   val googleIdOption =
     GetGoogleIdOption.Builder()
       .setFilterByAuthorizedAccounts(true)
@@ -145,15 +147,13 @@ fun onGoogleSignInClicked(
   onAuthSuccess: () -> Unit,
   onAuthError: (String) -> Unit,
   scope: CoroutineScope,
-  onAuthCancelled: () -> Unit = {},
+  onAuthCancelled: Unit = {},
 ) {
-  val clientId =
-    try {
-      context.getString(R.string.default_web_client_id)
-    } catch (_: Exception) {
-      onAuthError("Google Sign-In configuration missing: default_web_client_id not found")
-      return
-    }
+  val clientId = context.googleWebClientId()
+  if (clientId.isNullOrBlank()) {
+    onAuthError("Google Sign-In configuration missing: default_web_client_id not found")
+    return
+  }
   val activity = context.findActivity()
   if (activity == null) {
     onAuthError("Activity context required for Google Sign-In")
