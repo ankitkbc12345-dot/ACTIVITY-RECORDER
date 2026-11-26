@@ -22,12 +22,12 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SettingsRemote
 import androidx.compose.material.icons.filled.Sync
@@ -154,11 +154,11 @@ fun AdminDashboardScreen(
         "mod_security",
       ),
       DashboardModuleItem(
-        R.string.module_internet_config,
-        "Pre-configured cloud & STUN sync",
-        Icons.Default.Public,
-        NavRoutes.INTERNET_CONFIG,
-        "mod_internet_config",
+        R.string.module_cloud_sync,
+        "Google Sign-In & Cloud Firestore",
+        Icons.Default.CloudSync,
+        NavRoutes.CLOUD_SYNC,
+        "mod_cloud_sync",
       ),
     )
 

@@ -7,9 +7,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.wifi.WifiManager
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDevice
 import android.net.wifi.p2p.WifiP2pManager
+import android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceInfo
+import android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceRequest
 import android.os.Build
 import android.os.Looper
 import androidx.core.content.ContextCompat
@@ -36,12 +39,14 @@ data class WifiDirectPeer(
   val deviceName: String,
   val deviceAddress: String,
   val status: Int,
+  val hasDeviceRecorderApp: Boolean = false,
 )
 
 data class WifiDirectUiState(
   val hardwareAvailable: Boolean = false,
   val hasPermissions: Boolean = false,
   val isWifiP2pEnabled: Boolean = false,
+  val isWifiHardwareEnabled: Boolean = true,
   val isDiscovering: Boolean = false,
   val isListening: Boolean = false,
   val isConnected: Boolean = false,
@@ -59,9 +64,12 @@ class WifiDirectTransportManager(
 ) {
   companion object {
     const val P2P_PORT = 8988
+    const val SERVICE_INSTANCE = "DeviceRecorderSync"
+    const val SERVICE_TYPE = "_devicerecorder._tcp"
   }
 
   private val manager = context.getSystemService(Context.WIFI_P2P_SERVICE) as? WifiP2pManager
+  private val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
   private var channel: WifiP2pManager.Channel? = null
 
   private val _state = MutableStateFlow(WifiDirectUiState())
@@ -69,8 +77,11 @@ class WifiDirectTransportManager(
 
   private var serverSocket: ServerSocket? = null
   private var listenerJob: Job? = null
+  private var serviceScope: CoroutineScope? = null
   private var receiverRegistered = false
+  private var localServiceAdded = false
   private var pendingAuthDeferred: CompletableDeferred<Boolean>? = null
+  private val appVerifiedAddresses = mutableSetOf<String>()
 
   private val p2pReceiver =
     object : BroadcastReceiver() {
@@ -78,9 +89,17 @@ class WifiDirectTransportManager(
       override fun onReceive(ctx: Context, intent: Intent) {
         when (intent.action) {
           WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION -> {
-            val state = intent.getIntExtra(WifiP2pManager.EXTRA_WIFI_STATE, -1)
-            val enabled = state == WifiP2pManager.WIFI_P2P_STATE_ENABLED
-            _state.value = _state.value.copy(isWifiP2pEnabled = enabled)
+            val stateInt = intent.getIntExtra(WifiP2pManager.EXTRA_WIFI_STATE, -1)
+            val enabled = stateInt == WifiP2pManager.WIFI_P2P_STATE_ENABLED
+            val wifiOn = try { wifiManager?.isWifiEnabled != false } catch (_: Exception) { enabled }
+            _state.value =
+              _state.value.copy(
+                isWifiP2pEnabled = enabled,
+                isWifiHardwareEnabled = wifiOn,
+                statusMessage =
+                  if (!enabled) "Wi-Fi is turned off. Enable Wi-Fi to use Wi-Fi Direct."
+                  else _state.value.statusMessage,
+              )
           }
           WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION -> {
             val ch = channel ?: return
@@ -94,12 +113,16 @@ class WifiDirectTransportManager(
                         deviceName = d.deviceName?.ifBlank { "Wi-Fi Direct Peer" } ?: "Wi-Fi Direct Peer",
                         deviceAddress = addr,
                         status = d.status,
+                        hasDeviceRecorderApp = appVerifiedAddresses.contains(addr),
                       )
                     }
                   _state.value =
                     _state.value.copy(
                       peers = list,
-                      statusMessage = "Found ${list.size} nearby Wi-Fi Direct peer(s).",
+                      isDiscovering = false,
+                      statusMessage =
+                        if (list.isEmpty()) "No nearby Wi-Fi Direct peers found yet."
+                        else "Found ${list.size} nearby Wi-Fi Direct peer(s).",
                     )
                 }
               } catch (_: Exception) {}
@@ -110,15 +133,20 @@ class WifiDirectTransportManager(
             try {
               manager?.requestConnectionInfo(ch) { info ->
                 if (info != null && info.groupFormed) {
+                  val hostIp = info.groupOwnerAddress?.hostAddress
                   _state.value =
                     _state.value.copy(
                       isConnected = true,
-                      groupOwnerHost = info.groupOwnerAddress?.hostAddress,
+                      groupOwnerHost = hostIp,
                       isGroupOwner = info.isGroupOwner,
                       statusMessage =
-                        if (info.isGroupOwner) "Wi-Fi Direct Group Owner ready on port $P2P_PORT."
-                        else "Connected to Group Owner ${info.groupOwnerAddress?.hostAddress}.",
+                        if (info.isGroupOwner)
+                          "Wi-Fi Direct Group Owner active — ready for Device Recorder peer."
+                        else "Connected to Wi-Fi Direct Group Owner ($hostIp).",
                     )
+                  if (info.isGroupOwner && serviceScope != null && !_state.value.isListening) {
+                    startSocketListener(serviceScope!!)
+                  }
                 } else {
                   _state.value =
                     _state.value.copy(
@@ -148,14 +176,21 @@ class WifiDirectTransportManager(
     }
   }
 
-  fun initialize() {
+  @SuppressLint("MissingPermission")
+  fun initialize(scope: CoroutineScope? = null) {
+    if (scope != null) {
+      serviceScope = scope
+    }
     val hasFeature = context.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_DIRECT)
-    val hw = hasFeature && manager != null
+    val mgr = manager
+    val hw = hasFeature && mgr != null
     val perms = hasAllPermissions()
-    if (hw && channel == null) {
+    val wifiOn = try { wifiManager?.isWifiEnabled != false } catch (_: Exception) { true }
+
+    if (mgr != null && hw && channel == null) {
       channel =
         try {
-          manager?.initialize(context, Looper.getMainLooper(), null)
+          mgr.initialize(context, Looper.getMainLooper(), null)
         } catch (_: Exception) {
           null
         }
@@ -173,36 +208,126 @@ class WifiDirectTransportManager(
       } catch (_: Exception) {}
     }
 
+    if (hw && channel != null && perms && wifiOn && !localServiceAdded) {
+      registerLocalAppService()
+    }
+
     val msg =
       when {
         !hw -> "Wi-Fi Direct (P2P) hardware is unavailable on this device."
         !perms -> "Nearby Wi-Fi / Location permission is required for Wi-Fi Direct discovery."
+        !wifiOn -> "Wi-Fi is turned off. Turn on Wi-Fi to connect via Wi-Fi Direct."
         else -> _state.value.statusMessage.ifBlank { "Wi-Fi Direct ready (offline local P2P)." }
       }
-    _state.value = _state.value.copy(hardwareAvailable = hw, hasPermissions = perms, statusMessage = msg)
+    _state.value =
+      _state.value.copy(
+        hardwareAvailable = hw,
+        hasPermissions = perms,
+        isWifiHardwareEnabled = wifiOn,
+        isWifiP2pEnabled = _state.value.isWifiP2pEnabled || wifiOn,
+        statusMessage = msg,
+      )
   }
 
   @SuppressLint("MissingPermission")
-  fun discoverPeers() {
-    initialize()
+  private fun registerLocalAppService() {
+    val mgr = manager ?: return
+    val ch = channel ?: return
+    try {
+      val txtMap = mapOf("app" to TransferProtocol.APP_PROTOCOL_ID)
+      val serviceInfo =
+        WifiP2pDnsSdServiceInfo.newInstance(SERVICE_INSTANCE, SERVICE_TYPE, txtMap)
+      mgr.addLocalService(
+        ch,
+        serviceInfo,
+        object : WifiP2pManager.ActionListener {
+          override fun onSuccess() {
+            localServiceAdded = true
+          }
+          override fun onFailure(reason: Int) {}
+        },
+      )
+    } catch (_: Exception) {}
+  }
+
+  @SuppressLint("MissingPermission")
+  fun discoverPeers(scope: CoroutineScope? = null) {
+    initialize(scope)
     val mgr = manager ?: return
     val ch = channel ?: return
     if (!_state.value.hardwareAvailable || !hasAllPermissions()) return
 
-    _state.value = _state.value.copy(isDiscovering = true, statusMessage = "Searching Wi-Fi Direct peers...")
+    _state.value = _state.value.copy(isDiscovering = true, statusMessage = "Searching Wi-Fi Direct devices running Device Recorder...")
+    try {
+      mgr.setDnsSdResponseListeners(
+        ch,
+        { _, _, srcDevice ->
+          srcDevice.deviceAddress?.let { addr ->
+            appVerifiedAddresses.add(addr)
+            val updated =
+              _state.value.peers.map {
+                if (it.deviceAddress == addr) it.copy(hasDeviceRecorderApp = true) else it
+              }
+            _state.value = _state.value.copy(peers = updated)
+          }
+        },
+        { _, txtMap, srcDevice ->
+          if (txtMap["app"] == TransferProtocol.APP_PROTOCOL_ID) {
+            srcDevice.deviceAddress?.let { addr ->
+              appVerifiedAddresses.add(addr)
+              val updated =
+                _state.value.peers.map {
+                  if (it.deviceAddress == addr) it.copy(hasDeviceRecorderApp = true) else it
+                }
+              _state.value = _state.value.copy(peers = updated)
+            }
+          }
+        },
+      )
+      val req = WifiP2pDnsSdServiceRequest.newInstance(SERVICE_TYPE)
+      mgr.clearServiceRequests(
+        ch,
+        object : WifiP2pManager.ActionListener {
+          override fun onSuccess() {
+            mgr.addServiceRequest(
+              ch,
+              req,
+              object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                  mgr.discoverServices(ch, object : WifiP2pManager.ActionListener {
+                    override fun onSuccess() {}
+                    override fun onFailure(reason: Int) {}
+                  })
+                }
+                override fun onFailure(reason: Int) {}
+              },
+            )
+          }
+          override fun onFailure(reason: Int) {}
+        },
+      )
+    } catch (_: Exception) {}
+
     try {
       mgr.discoverPeers(
         ch,
         object : WifiP2pManager.ActionListener {
           override fun onSuccess() {
-            _state.value = _state.value.copy(statusMessage = "Wi-Fi Direct peer discovery active.")
+            _state.value = _state.value.copy(statusMessage = "Wi-Fi Direct scan active. Keep the other phone open on Device Connections.")
           }
 
           override fun onFailure(reason: Int) {
+            val detail =
+              when (reason) {
+                WifiP2pManager.P2P_UNSUPPORTED -> "Wi-Fi Direct unsupported"
+                WifiP2pManager.BUSY -> "Wi-Fi Direct framework busy — wait a moment"
+                WifiP2pManager.ERROR -> "Check Wi-Fi and Location are enabled"
+                else -> "code $reason"
+              }
             _state.value =
               _state.value.copy(
                 isDiscovering = false,
-                statusMessage = "Wi-Fi Direct discovery failed (code $reason).",
+                statusMessage = "Wi-Fi Direct discovery failed ($detail).",
               )
           }
         },
@@ -229,7 +354,7 @@ class WifiDirectTransportManager(
         config,
         object : WifiP2pManager.ActionListener {
           override fun onSuccess() {
-            _state.value = _state.value.copy(statusMessage = "Wi-Fi Direct connection initiated to $deviceAddress.")
+            _state.value = _state.value.copy(statusMessage = "Connecting to Wi-Fi Direct peer $deviceAddress...")
           }
 
           override fun onFailure(reason: Int) {
@@ -242,16 +367,46 @@ class WifiDirectTransportManager(
     }
   }
 
+  @SuppressLint("MissingPermission")
+  fun disconnectGroup() {
+    val mgr = manager ?: return
+    val ch = channel ?: return
+    stopSocketListener()
+    try {
+      mgr.removeGroup(
+        ch,
+        object : WifiP2pManager.ActionListener {
+          override fun onSuccess() {
+            _state.value =
+              _state.value.copy(
+                isConnected = false,
+                isGroupOwner = false,
+                groupOwnerHost = null,
+                statusMessage = "Wi-Fi Direct group closed.",
+              )
+          }
+          override fun onFailure(reason: Int) {
+            _state.value = _state.value.copy(statusMessage = "Failed to close group (code $reason).")
+          }
+        },
+      )
+    } catch (_: Exception) {}
+  }
+
   fun startSocketListener(scope: CoroutineScope) {
+    serviceScope = scope
     if (_state.value.isListening) return
     listenerJob =
       scope.launch(Dispatchers.IO) {
         try {
-          serverSocket = ServerSocket(P2P_PORT)
+          val sock = ServerSocket()
+          sock.reuseAddress = true
+          sock.bind(InetSocketAddress(P2P_PORT))
+          serverSocket = sock
           _state.value =
             _state.value.copy(
               isListening = true,
-              statusMessage = "Wi-Fi Direct encrypted socket listening on port $P2P_PORT.",
+              statusMessage = "Wi-Fi Direct listener active on port $P2P_PORT.",
             )
           while (_state.value.isListening) {
             val client = serverSocket?.accept() ?: break
@@ -289,6 +444,19 @@ class WifiDirectTransportManager(
       val input = DataInputStream(socket.getInputStream())
       val output = DataOutputStream(socket.getOutputStream())
       val helloJson = JSONObject(input.readUTF())
+
+      if (helloJson.optString("appProtocolId") != TransferProtocol.APP_PROTOCOL_ID) {
+        output.writeUTF(
+          JSONObject()
+            .put("appProtocolId", TransferProtocol.APP_PROTOCOL_ID)
+            .put("approved", false)
+            .put("reason", "Rejected: Peer is not running Device Recorder.")
+            .toString()
+        )
+        output.flush()
+        return
+      }
+
       val remoteDeviceId = helloJson.getString("deviceId")
       val remoteName = helloJson.optString("deviceName", remoteDeviceId)
       val remoteModel = helloJson.optString("deviceModel", "Wi-Fi Direct Peer")
@@ -314,7 +482,13 @@ class WifiDirectTransportManager(
 
       val approved = deferred.await()
       if (!approved) {
-        output.writeUTF(JSONObject().put("approved", false).put("reason", "Rejected by device owner").toString())
+        output.writeUTF(
+          JSONObject()
+            .put("appProtocolId", TransferProtocol.APP_PROTOCOL_ID)
+            .put("approved", false)
+            .put("reason", "Rejected by device owner")
+            .toString()
+        )
         output.flush()
         return
       }
@@ -328,6 +502,7 @@ class WifiDirectTransportManager(
 
       output.writeUTF(
         JSONObject()
+          .put("appProtocolId", TransferProtocol.APP_PROTOCOL_ID)
           .put("approved", true)
           .put("deviceId", settingsStore.getLocalDeviceId())
           .put("deviceName", settingsStore.getLocalDeviceName())
@@ -341,6 +516,7 @@ class WifiDirectTransportManager(
         val launched = TransferProtocol.launchInteractiveUninstall(context, pkgToUninstall)
         output.writeUTF(
           JSONObject()
+            .put("appProtocolId", TransferProtocol.APP_PROTOCOL_ID)
             .put("status", if (launched) "PROMPTED_ON_SOURCE" else "FAILED")
             .put(
               "message",
@@ -366,7 +542,7 @@ class WifiDirectTransportManager(
     }
   }
 
-  suspend fun syncWithHost(hostIp: String): Result<String> =
+  suspend fun syncWithHost(hostIp: String): Result<ImportedSnapshotSummary> =
     withContext(Dispatchers.IO) {
       try {
         val socket = Socket()
@@ -374,10 +550,11 @@ class WifiDirectTransportManager(
 
         val secret = CryptoManager.generatePairingSecret()
         val output = DataOutputStream(socket.getOutputStream())
-        val input = DataInputStream(socket.getInputStream())
+        val input = DataInputStream(socket.inputStream)
 
         output.writeUTF(
           JSONObject()
+            .put("appProtocolId", TransferProtocol.APP_PROTOCOL_ID)
             .put("action", "PAIR_AND_SYNC")
             .put("deviceId", settingsStore.getLocalDeviceId())
             .put("deviceName", settingsStore.getLocalDeviceName())
@@ -389,6 +566,12 @@ class WifiDirectTransportManager(
         output.flush()
 
         val ack = JSONObject(input.readUTF())
+        if (ack.optString("appProtocolId") != TransferProtocol.APP_PROTOCOL_ID) {
+          socket.close()
+          return@withContext Result.failure(
+            IllegalStateException("Connected Wi-Fi Direct peer is not running Device Recorder.")
+          )
+        }
         if (!ack.optBoolean("approved", false)) {
           socket.close()
           return@withContext Result.failure(
@@ -399,7 +582,7 @@ class WifiDirectTransportManager(
         val envelope = input.readUTF()
         socket.close()
 
-        val (inv, ev, calls) =
+        val summary =
           TransferProtocol.verifyAndImportSnapshot(
             context = context,
             db = db,
@@ -408,11 +591,15 @@ class WifiDirectTransportManager(
             transportMethod = TransferProtocol.METHOD_WIFI_DIRECT,
             wifiDirectAddress = hostIp,
           )
-        val msg = "Verified & imported $inv apps, $ev events, $calls calls over Wi-Fi Direct."
+        val msg =
+          "Connected to ${summary.deviceName}: ${summary.inventoryCount} apps, ${summary.eventsCount} events, ${summary.callLogsCount} calls over Wi-Fi Direct."
         _state.value = _state.value.copy(statusMessage = msg)
-        Result.success(msg)
+        Result.success(summary)
       } catch (e: Exception) {
-        Result.failure(e)
+        val msg =
+          "Could not reach Device Recorder on Group Owner ($hostIp). Make sure Device Recorder is open on the other device."
+        _state.value = _state.value.copy(statusMessage = msg)
+        Result.failure(IllegalStateException(msg, e))
       }
     }
 
@@ -422,10 +609,11 @@ class WifiDirectTransportManager(
         val socket = Socket()
         socket.connect(InetSocketAddress(hostIp, P2P_PORT), 8000)
         val output = DataOutputStream(socket.getOutputStream())
-        val input = DataInputStream(socket.getInputStream())
+        val input = DataInputStream(socket.inputStream)
 
         output.writeUTF(
           JSONObject()
+            .put("appProtocolId", TransferProtocol.APP_PROTOCOL_ID)
             .put("action", "REMOTE_UNINSTALL")
             .put("deviceId", settingsStore.getLocalDeviceId())
             .put("deviceName", settingsStore.getLocalDeviceName())
@@ -437,6 +625,10 @@ class WifiDirectTransportManager(
         output.flush()
 
         val ack = JSONObject(input.readUTF())
+        if (ack.optString("appProtocolId") != TransferProtocol.APP_PROTOCOL_ID) {
+          socket.close()
+          return@withContext Result.failure(IllegalStateException("Remote peer is not running Device Recorder."))
+        }
         if (!ack.optBoolean("approved", false)) {
           socket.close()
           return@withContext Result.failure(IllegalStateException(ack.optString("reason", "Denied")))

@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,12 +31,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -59,6 +65,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -67,6 +74,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.R
+import com.example.connectivity.UpdateCheckResult
+import com.example.updates.ApkDownloadState
 import java.text.DateFormatSymbols
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -76,10 +85,15 @@ import java.util.TimeZone
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+private val HomeUpdateBannerRed = Color(0xFFD32F2F)
+
 @Composable
 fun HomeCalendarScreen(
   onOpenAdminPanel: () -> Unit,
   onOpenCheckUpdates: () -> Unit,
+  updateCheckResult: UpdateCheckResult = UpdateCheckResult.NotChecked,
+  apkDownloadState: ApkDownloadState = ApkDownloadState.Idle,
+  onStartOrRetryUpdate: () -> Unit = onOpenCheckUpdates,
 ) {
   val context = LocalContext.current
   val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -214,6 +228,23 @@ fun HomeCalendarScreen(
               .padding(bottom = 24.dp),
           horizontalAlignment = Alignment.Start,
         ) {
+          val availableUpdate =
+            (updateCheckResult as? UpdateCheckResult.Checked)?.takeIf { it.updateAvailable }
+
+          AnimatedVisibility(visible = availableUpdate != null) {
+            if (availableUpdate != null) {
+              HomeRedUpdateBanner(
+                latestVersionName = availableUpdate.latestVersionName,
+                downloadState = apkDownloadState,
+                onClick = onStartOrRetryUpdate,
+              )
+            }
+          }
+
+          if (availableUpdate != null) {
+            Spacer(modifier = Modifier.height(14.dp))
+          }
+
           val locale = Locale.getDefault()
           val tz = TimeZone.getDefault()
           val dayOfWeekText =
@@ -462,6 +493,111 @@ fun HomeCalendarScreen(
               )
             }
           }
+        }
+      }
+    }
+  }
+}
+
+@Composable
+private fun HomeRedUpdateBanner(
+  latestVersionName: String,
+  downloadState: ApkDownloadState,
+  onClick: () -> Unit,
+) {
+  val isDownloading = downloadState is ApkDownloadState.Downloading
+  Surface(
+    shape = RoundedCornerShape(18.dp),
+    color = HomeUpdateBannerRed,
+    contentColor = Color.White,
+    shadowElevation = 4.dp,
+    modifier =
+      Modifier.fillMaxWidth()
+        .clip(RoundedCornerShape(18.dp))
+        .clickable(enabled = !isDownloading, onClick = onClick)
+        .minimumInteractiveComponentSize()
+        .testTag("home_update_banner"),
+  ) {
+    Column(
+      modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+      verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+      ) {
+        val icon =
+          when (downloadState) {
+            is ApkDownloadState.Downloading -> Icons.Default.CloudDownload
+            is ApkDownloadState.PermissionRequired -> Icons.Default.Security
+            is ApkDownloadState.ReadyToInstall -> Icons.Default.InstallMobile
+            is ApkDownloadState.Failed -> Icons.Default.ErrorOutline
+            ApkDownloadState.Idle -> Icons.Default.SystemUpdate
+          }
+        Icon(
+          imageVector = icon,
+          contentDescription = null,
+          tint = Color.White,
+          modifier = Modifier.size(26.dp),
+        )
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+          val primaryMessage =
+            when (downloadState) {
+              ApkDownloadState.Idle -> stringResource(R.string.update_banner_available)
+              is ApkDownloadState.Downloading ->
+                if (downloadState.progressPercent >= 0)
+                  "${stringResource(R.string.updates_downloading_title)} (${downloadState.progressPercent}%)"
+                else stringResource(R.string.updates_downloading_title)
+              is ApkDownloadState.PermissionRequired ->
+                stringResource(R.string.updates_permission_required)
+              is ApkDownloadState.ReadyToInstall ->
+                stringResource(R.string.updates_ready_to_install)
+              is ApkDownloadState.Failed ->
+                stringResource(R.string.updates_download_failed, downloadState.message)
+            }
+          Text(
+            text = primaryMessage,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+          )
+          val subMessage =
+            when (downloadState) {
+              ApkDownloadState.Idle -> "v$latestVersionName • Tap to download & install"
+              is ApkDownloadState.Downloading ->
+                if (downloadState.totalBytes > 0L)
+                  "${formatByteCount(downloadState.downloadedBytes)} / ${formatByteCount(downloadState.totalBytes)}"
+                else formatByteCount(downloadState.downloadedBytes)
+              is ApkDownloadState.PermissionRequired ->
+                "${stringResource(R.string.updates_allow_permission_button)} • v$latestVersionName"
+              is ApkDownloadState.ReadyToInstall ->
+                "${stringResource(R.string.updates_install_apk_button)} • v$latestVersionName"
+              is ApkDownloadState.Failed ->
+                stringResource(R.string.updates_retry_button)
+            }
+          Text(
+            text = subMessage,
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White.copy(alpha = 0.9f),
+          )
+        }
+      }
+
+      if (downloadState is ApkDownloadState.Downloading) {
+        if (downloadState.progressPercent >= 0) {
+          LinearProgressIndicator(
+            progress = { (downloadState.progressPercent / 100f).coerceIn(0f, 1f) },
+            color = Color.White,
+            trackColor = Color.White.copy(alpha = 0.3f),
+            modifier = Modifier.fillMaxWidth().height(6.dp),
+          )
+        } else {
+          LinearProgressIndicator(
+            color = Color.White,
+            trackColor = Color.White.copy(alpha = 0.3f),
+            modifier = Modifier.fillMaxWidth().height(6.dp),
+          )
         }
       }
     }

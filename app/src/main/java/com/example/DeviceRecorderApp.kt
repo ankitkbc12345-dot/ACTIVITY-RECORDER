@@ -3,12 +3,17 @@ package com.example
 import android.app.Application
 import android.content.Intent
 import android.content.IntentFilter
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import android.provider.CallLog
 import androidx.core.content.ContextCompat
 import com.example.connectivity.BluetoothTransportManager
 import com.example.connectivity.InternetSignalingManager
 import com.example.connectivity.WifiDirectTransportManager
 import com.example.data.local.AppDatabase
 import com.example.data.preferences.SettingsStore
+import com.example.monitoring.CallLogReader
 import com.example.monitoring.PackageEventReceiver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,10 +37,21 @@ class DeviceRecorderApp : Application() {
   }
 
   private val dynamicPackageReceiver = PackageEventReceiver()
+  @Volatile private var callLogObserverRegistered = false
+  private var callLogObserver: ContentObserver? = null
 
   override fun onCreate() {
     super.onCreate()
-    appScope.launch { settingsStore.ensureInitialProvisioning() }
+    appScope.launch {
+      settingsStore.ensureInitialProvisioning()
+      if (CallLogReader.hasCallLogPermission(this@DeviceRecorderApp)) {
+        CallLogReader.syncLocalCallLogs(
+          context = this@DeviceRecorderApp,
+          settingsStore = settingsStore,
+          callLogDao = database.callLogDao(),
+        )
+      }
+    }
 
     val packageFilter =
       IntentFilter().apply {
@@ -51,5 +67,33 @@ class DeviceRecorderApp : Application() {
       packageFilter,
       ContextCompat.RECEIVER_EXPORTED,
     )
+    ensureCallLogObserverRegistered()
+  }
+
+  @Synchronized
+  fun ensureCallLogObserverRegistered() {
+    if (callLogObserverRegistered || !CallLogReader.hasCallLogPermission(this)) return
+    val observer =
+      object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) {
+          super.onChange(selfChange)
+          appScope.launch {
+            CallLogReader.syncLocalCallLogs(
+              context = this@DeviceRecorderApp,
+              settingsStore = settingsStore,
+              callLogDao = database.callLogDao(),
+            )
+          }
+        }
+      }
+    try {
+      contentResolver.registerContentObserver(CallLog.Calls.CONTENT_URI, true, observer)
+      callLogObserver = observer
+      callLogObserverRegistered = true
+    } catch (_: SecurityException) {
+      callLogObserverRegistered = false
+    } catch (_: Exception) {
+      callLogObserverRegistered = false
+    }
   }
 }

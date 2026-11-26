@@ -12,6 +12,10 @@ import com.example.data.local.CallLogEntity
 import com.example.data.local.PairedDeviceEntity
 import com.example.data.preferences.SettingsStore
 import com.example.security.CryptoManager
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -27,10 +31,35 @@ data class IncomingTransferConfirmation(
   val packageToUninstall: String? = null,
 )
 
+data class ImportedSnapshotSummary(
+  val deviceId: String,
+  val deviceName: String,
+  val inventoryCount: Int,
+  val eventsCount: Int,
+  val callLogsCount: Int,
+)
+
 object TransferProtocol {
+  const val APP_PROTOCOL_ID = "com.aistudio.devicerecorder.protocol.v1"
+  const val PROTOCOL_VERSION = 1
   const val METHOD_BLUETOOTH = "BLUETOOTH"
   const val METHOD_WIFI_DIRECT = "WIFI_DIRECT"
   const val METHOD_INTERNET = "INTERNET"
+
+  fun compressTextBase64(text: String): String {
+    val bos = ByteArrayOutputStream()
+    GZIPOutputStream(bos).use { gzip ->
+      gzip.write(text.toByteArray(Charsets.UTF_8))
+    }
+    return Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP)
+  }
+
+  fun decompressTextBase64(compressedBase64: String): String {
+    val bytes = Base64.decode(compressedBase64, Base64.NO_WRAP)
+    GZIPInputStream(ByteArrayInputStream(bytes)).use { gzip ->
+      return gzip.readBytes().toString(Charsets.UTF_8)
+    }
+  }
 
   suspend fun buildEncryptedRecordSnapshot(
     context: Context,
@@ -49,6 +78,8 @@ object TransferProtocol {
       val payload =
         JSONObject().apply {
           put("type", "SYNC_RESPONSE")
+          put("appProtocolId", APP_PROTOCOL_ID)
+          put("protocolVersion", PROTOCOL_VERSION)
           put("deviceId", localId)
           put("deviceName", localName)
           put("deviceModel", localModel)
@@ -120,6 +151,7 @@ object TransferProtocol {
       val cipherBytes = CryptoManager.encryptWithSharedSecret(plainBytes, sharedSecret)
       JSONObject()
         .apply {
+          put("appProtocolId", APP_PROTOCOL_ID)
           put("senderDeviceId", localId)
           put("sha256", sha256)
           put("cipherBase64", Base64.encodeToString(cipherBytes, Base64.NO_WRAP))
@@ -136,9 +168,12 @@ object TransferProtocol {
     bluetoothAddress: String? = null,
     wifiDirectAddress: String? = null,
     internetEndpointId: String? = null,
-  ): Triple<Int, Int, Int> =
+  ): ImportedSnapshotSummary =
     withContext(Dispatchers.IO) {
       val env = JSONObject(envelopeJson)
+      require(env.optString("appProtocolId") == APP_PROTOCOL_ID) {
+        "Rejected: Remote device is not running Device Recorder."
+      }
       val expectedSha = env.getString("sha256")
       val cipherBytes = Base64.decode(env.getString("cipherBase64"), Base64.NO_WRAP)
       val plainBytes = CryptoManager.decryptWithSharedSecret(cipherBytes, sharedSecret)
@@ -147,6 +182,9 @@ object TransferProtocol {
       }
 
       val root = JSONObject(plainBytes.toString(Charsets.UTF_8))
+      require(root.optString("appProtocolId") == APP_PROTOCOL_ID) {
+        "Rejected: Payload did not originate from Device Recorder."
+      }
       val sourceDeviceId = root.getString("deviceId")
       val sourceDeviceName = root.optString("deviceName", sourceDeviceId)
       val sourceDeviceModel = root.optString("deviceModel", "Android Device")
@@ -260,7 +298,13 @@ object TransferProtocol {
           )
         )
 
-      Triple(inventory.size, events.size, callLogs.size)
+      ImportedSnapshotSummary(
+        deviceId = sourceDeviceId,
+        deviceName = sourceDeviceName,
+        inventoryCount = inventory.size,
+        eventsCount = events.size,
+        callLogsCount = callLogs.size,
+      )
     }
 
   fun isDeviceOwnerCapable(context: Context): Boolean {

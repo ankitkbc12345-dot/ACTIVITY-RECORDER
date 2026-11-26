@@ -18,4 +18,5 @@ object NavRoutes {
   const val LANGUAGE_SETTINGS = "module_language_settings"
   const val SECURITY_SETTINGS = "module_security_settings"
   const val INTERNET_CONFIG = "module_internet_config"
+  const val CLOUD_SYNC = "module_cloud_sync"
 }

@@ -21,9 +21,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CallMade
-import androidx.compose.material.icons.filled.CallMissed
-import androidx.compose.material.icons.filled.CallReceived
+import androidx.compose.material.icons.automirrored.filled.CallMade
+import androidx.compose.material.icons.automirrored.filled.CallMissed
+import androidx.compose.material.icons.automirrored.filled.CallReceived
 import androidx.compose.material.icons.filled.PhoneDisabled
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -40,6 +40,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,11 +77,19 @@ fun CallLogRecordsScreen(
 
   val permissionLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-      viewModel.refreshPermissionStates()
       if (granted) {
-        viewModel.syncLocalCallLogs()
+        viewModel.onCallLogPermissionGranted()
+      } else {
+        viewModel.refreshPermissionStates()
       }
     }
+
+  LaunchedEffect(isLocal, hasPermission, recording.masterEnabled, recording.callLogEnabled) {
+    viewModel.refreshPermissionStates()
+    if (isLocal && hasPermission && recording.masterEnabled && recording.callLogEnabled) {
+      viewModel.syncLocalCallLogs()
+    }
+  }
 
   Scaffold(
     topBar = {
@@ -152,11 +161,25 @@ fun CallLogRecordsScreen(
           color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f),
           modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
-          Text(
-            "Call Log Recording is currently disabled in Recording Control Settings. Showing previously stored records only.",
-            style = MaterialTheme.typography.bodyMedium,
+          Row(
             modifier = Modifier.padding(12.dp),
-          )
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            Text(
+              "Call Log Recording is currently paused.",
+              style = MaterialTheme.typography.bodyMedium,
+              modifier = Modifier.weight(1f),
+            )
+            OutlinedButton(
+              onClick = {
+                if (!recording.masterEnabled) viewModel.setMasterRecording(true)
+                viewModel.onCallLogPermissionGranted()
+              },
+            ) {
+              Text("Enable")
+            }
+          }
         }
       }
 
@@ -250,9 +273,9 @@ fun CallLogRecordsScreen(
             ) {
               val icon =
                 when (log.callType) {
-                  "INCOMING" -> Icons.Default.CallReceived
-                  "OUTGOING" -> Icons.Default.CallMade
-                  else -> Icons.Default.CallMissed
+                  "INCOMING" -> Icons.AutoMirrored.Filled.CallReceived
+                  "OUTGOING" -> Icons.AutoMirrored.Filled.CallMade
+                  else -> Icons.AutoMirrored.Filled.CallMissed
                 }
               val tint =
                 when (log.callType) {

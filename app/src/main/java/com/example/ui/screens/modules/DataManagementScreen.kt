@@ -107,7 +107,7 @@ fun DataManagementScreen(
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp)),
       ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-          Text("Active Scope Pruning ($activeId)", style = MaterialTheme.typography.titleMedium)
+          Text("Activity & Call History Pruning", style = MaterialTheme.typography.titleMedium)
 
           Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(

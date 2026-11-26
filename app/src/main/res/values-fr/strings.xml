@@ -10,9 +10,20 @@
     <string name="calendar_timezone_prefix">Fuseau horaire local</string>
     <string name="updates_title">Mises à jour</string>
     <string name="updates_installed_version">Version installée</string>
-    <string name="updates_check_button">Vérifier maintenant</string>
+    <string name="updates_check_button">Check Updates</string>
     <string name="updates_offline_status">Appareil hors ligne. Le calendrier et l\'enregistrement local restent actifs.</string>
-    <string name="updates_not_configured">L\'application est à jour (Version officielle v1.0.0).</string>
+    <string name="updates_not_configured">आपका app अप-टू-डेट है</string>
+    <string name="update_banner_available">नया अपडेट उपलब्ध है — अपडेट करें</string>
+    <string name="updates_update_now_button">अपडेट करें</string>
+    <string name="updates_up_to_date">आपका app अप-टू-डेट है</string>
+    <string name="updates_downloading_title">अपडेट डाउनलोड हो रहा है…</string>
+    <string name="updates_permission_required">APK इंस्टॉल करने के लिए “Install unknown apps” अनुमति दें।</string>
+    <string name="updates_allow_permission_button">अनुमति दें</string>
+    <string name="updates_install_apk_button">अभी इंस्टॉल करें</string>
+    <string name="updates_retry_button">पुनः प्रयास करें</string>
+    <string name="updates_download_failed">अपडेट डाउनलोड विफल: %1$s</string>
+    <string name="updates_ready_to_install">नया अपडेट डाउनलोड हो गया है — इंस्टॉल करें</string>
+    <string name="updates_prompt_check">GitHub Release जांचने के लिए Check Updates दबाएँ।</string>
     <string name="login_title">Accès Administrateur</string>
     <string name="login_subtitle">Authentification locale autorisée</string>
     <string name="login_admin_id">ID Admin</string>
@@ -43,4 +54,5 @@
     <string name="language_applied">Langue mise à jour</string>
     <string name="module_security">Paramètres de sécurité</string>
     <string name="module_internet_config">Configuration Internet</string>
+    <string name="module_cloud_sync">Synchronisation Cloud</string>
 </resources>

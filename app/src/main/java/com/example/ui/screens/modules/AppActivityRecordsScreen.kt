@@ -125,23 +125,6 @@ fun AppActivityRecordsScreen(
         StatChip("Uninstalls", totalUninstalls.toString(), Modifier.weight(1f))
       }
 
-      // Source & Visibility Transparency Banner
-      Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        shape = RoundedCornerShape(12.dp),
-      ) {
-        Text(
-          text =
-            if (isLocal)
-              "Showing live local packages visible via Android PackageManager (<queries>: launcher apps & WhatsApp). Only real events recorded while monitoring is active are logged."
-            else
-              "Showing imported historical snapshot for $activeId. Events are preserved as recorded at transfer time.",
-          style = MaterialTheme.typography.bodyMedium,
-          modifier = Modifier.padding(10.dp),
-        )
-      }
-
       TabRow(selectedTabIndex = selectedTab) {
         Tab(
           selected = selectedTab == 0,

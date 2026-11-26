@@ -58,9 +58,9 @@ fun LanguageSettingsScreen(
 
   val themes =
     listOf(
-      ThemeOption("system", R.string.theme_system),
       ThemeOption("light", R.string.theme_light),
       ThemeOption("dark", R.string.theme_dark),
+      ThemeOption("system", R.string.theme_system),
     )
 
   Scaffold(

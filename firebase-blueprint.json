@@ -1,0 +1,201 @@
+{
+  "entities": {
+    "SyncProfile": {
+      "title": "SyncProfile",
+      "description": "Authenticated user's cloud sync profile and active device pointer.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID matching request.auth.uid."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User display name (1 to 80 characters)."
+        },
+        "email": {
+          "type": "string",
+          "description": "Optional owner email address isolated to owner reads."
+        },
+        "activeDeviceId": {
+          "type": "string",
+          "description": "Most recently synced local device identifier."
+        },
+        "totalSnapshots": {
+          "type": "integer",
+          "description": "Non-negative count of synced device snapshots."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp updated via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "displayName",
+        "activeDeviceId",
+        "totalSnapshots",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CloudDeviceSnapshot": {
+      "title": "CloudDeviceSnapshot",
+      "description": "Cloud-synced summary snapshot of a device's installed apps, events, and call log counts.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID matching request.auth.uid."
+        },
+        "deviceId": {
+          "type": "string",
+          "description": "Device identifier matching ^[a-zA-Z0-9_\\-]+$."
+        },
+        "deviceName": {
+          "type": "string",
+          "description": "Human-readable device label (1 to 80 characters)."
+        },
+        "deviceModel": {
+          "type": "string",
+          "description": "Hardware device model string (1 to 80 characters)."
+        },
+        "appCount": {
+          "type": "integer",
+          "description": "Number of tracked applications in inventory."
+        },
+        "activityCount": {
+          "type": "integer",
+          "description": "Number of recorded app install/update/uninstall events."
+        },
+        "callLogCount": {
+          "type": "integer",
+          "description": "Number of synced call log metadata records."
+        },
+        "summaryNote": {
+          "type": "string",
+          "description": "Optional sync note (up to 500 characters)."
+        },
+        "syncStatus": {
+          "type": "string",
+          "enum": ["SYNCED", "PAUSED"],
+          "description": "Current cloud synchronization status for the device."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp updated via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "deviceId",
+        "deviceName",
+        "deviceModel",
+        "appCount",
+        "activityCount",
+        "callLogCount",
+        "syncStatus",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CloudActivityRecord": {
+      "title": "CloudActivityRecord",
+      "description": "Individual cloud-synced app activity, inventory, or call metadata record.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner Firebase Auth UID matching request.auth.uid."
+        },
+        "deviceId": {
+          "type": "string",
+          "description": "Source device identifier matching ^[a-zA-Z0-9_\\-]+$."
+        },
+        "recordCategory": {
+          "type": "string",
+          "enum": ["APP_EVENT", "APP_INVENTORY", "CALL_LOG"],
+          "description": "Category of the synced activity record."
+        },
+        "title": {
+          "type": "string",
+          "description": "Primary title such as app name or protected call label (1 to 120 chars)."
+        },
+        "subtitle": {
+          "type": "string",
+          "description": "Package name or call classification (1 to 160 chars)."
+        },
+        "detail": {
+          "type": "string",
+          "description": "Optional installer, version, or duration detail (up to 240 chars)."
+        },
+        "eventDate": {
+          "type": "string",
+          "description": "Local date formatted yyyy-MM-dd (1 to 20 chars)."
+        },
+        "eventTime": {
+          "type": "string",
+          "description": "Local time formatted HH:mm:ss (1 to 20 chars)."
+        },
+        "recordedAtMillis": {
+          "type": "integer",
+          "description": "Original event epoch milliseconds (>= 0)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp updated via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "deviceId",
+        "recordCategory",
+        "title",
+        "subtitle",
+        "eventDate",
+        "eventTime",
+        "recordedAtMillis",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/SyncProfile"
+      },
+      "description": "Private user sync profile containing active device metadata and optional owner email."
+    },
+    "/users/{userId}/device_snapshots/{snapshotId}": {
+      "schema": {
+        "$ref": "#/entities/CloudDeviceSnapshot"
+      },
+      "description": "Per-user synced device snapshot summaries."
+    },
+    "/users/{userId}/activity_records/{recordId}": {
+      "schema": {
+        "$ref": "#/entities/CloudActivityRecord"
+      },
+      "description": "Per-user synced application activity and call metadata records."
+    }
+  }
+}

@@ -114,21 +114,6 @@ fun ExportPdfScreen(
           .verticalScroll(rememberScrollState()),
       verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-      Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-        modifier = Modifier.fillMaxWidth(),
-      ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-          Text("Target Device Scope", style = MaterialTheme.typography.labelLarge)
-          Text("$activeLabel ($activeId)", style = MaterialTheme.typography.titleMedium)
-          Text(
-            if (activeId == localId) "Source: Live Local Encrypted Database"
-            else "Source: Imported Historical Snapshot",
-            style = MaterialTheme.typography.bodyMedium,
-          )
-        }
-      }
 
       Surface(
         shape = RoundedCornerShape(16.dp),

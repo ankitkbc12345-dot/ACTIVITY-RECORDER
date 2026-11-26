@@ -39,9 +39,11 @@ import com.example.ui.screens.AdminDashboardScreen
 import com.example.ui.screens.AdminLoginScreen
 import com.example.ui.screens.HomeCalendarScreen
 import com.example.ui.screens.UpdatesScreen
+import com.example.ui.screens.rememberApkUpdateAction
 import com.example.ui.screens.modules.AppActivityRecordsScreen
 import com.example.ui.screens.modules.BackupRestoreScreen
 import com.example.ui.screens.modules.CallLogRecordsScreen
+import com.example.ui.screens.modules.CloudSyncScreen
 import com.example.ui.screens.modules.DataManagementScreen
 import com.example.ui.screens.modules.DeviceConnectionsScreen
 import com.example.ui.screens.modules.DeviceSelectionScreen
@@ -85,6 +87,9 @@ class MainActivity : ComponentActivity() {
       val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
       val isAuthenticated by viewModel.isAdminAuthenticated.collectAsStateWithLifecycle()
       val statusBanner by viewModel.statusBanner.collectAsStateWithLifecycle()
+      val updateCheckResult by viewModel.updateCheckResult.collectAsStateWithLifecycle()
+      val apkDownloadState by viewModel.apkDownloadState.collectAsStateWithLifecycle()
+      val onTriggerApkUpdate = rememberApkUpdateAction(viewModel)
 
       val systemDark = isSystemInDarkTheme()
       val darkTheme =
@@ -151,6 +156,9 @@ class MainActivity : ComponentActivity() {
                     onOpenCheckUpdates = {
                       navigateSingleTop(navController, NavRoutes.CHECK_UPDATES)
                     },
+                    updateCheckResult = updateCheckResult,
+                    apkDownloadState = apkDownloadState,
+                    onStartOrRetryUpdate = onTriggerApkUpdate,
                   )
                 }
 
@@ -223,7 +231,8 @@ class MainActivity : ComponentActivity() {
                 composable(NavRoutes.DEVICE_CONNECTIONS) {
                   DeviceConnectionsScreen(
                     viewModel = viewModel,
-                    onOpenInternetConfig = { navigateSingleTop(navController, NavRoutes.INTERNET_CONFIG) },
+                    onViewAppActivity = { navigateSingleTop(navController, NavRoutes.APP_ACTIVITY) },
+                    onViewCallLogs = { navigateSingleTop(navController, NavRoutes.CALL_LOGS) },
                     onBack = { popBackSafely(navController) },
                   )
                 }
@@ -273,6 +282,17 @@ class MainActivity : ComponentActivity() {
                 composable(NavRoutes.INTERNET_CONFIG) {
                   InternetConfigScreen(
                     viewModel = viewModel,
+                    onBack = { popBackSafely(navController) },
+                  )
+                }
+
+                composable(NavRoutes.CLOUD_SYNC) {
+                  val localDeviceId by viewModel.localDeviceId.collectAsStateWithLifecycle()
+                  val localDeviceName by viewModel.localDeviceName.collectAsStateWithLifecycle()
+                  CloudSyncScreen(
+                    app = application as DeviceRecorderApp,
+                    localDeviceId = localDeviceId,
+                    localDeviceName = localDeviceName,
                     onBack = { popBackSafely(navController) },
                   )
                 }

@@ -13,17 +13,20 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.ParcelUuid
 import androidx.core.content.ContextCompat
 import com.example.data.local.AppDatabase
 import com.example.data.preferences.SettingsStore
 import com.example.security.CryptoManager
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,6 +38,7 @@ data class DiscoveredBluetoothPeer(
   val name: String,
   val address: String,
   val isBonded: Boolean,
+  val hasDeviceRecorderApp: Boolean = false,
 )
 
 data class BluetoothUiState(
@@ -55,7 +59,7 @@ class BluetoothTransportManager(
 ) {
   companion object {
     val SERVICE_UUID: UUID = UUID.fromString("8c5b4f90-7b2d-4c5a-9e12-3f8a1b2c3d4e")
-    const val SERVICE_NAME = "PersonalDeviceActivityRecorder"
+    const val SERVICE_NAME = "DeviceRecorderSync"
   }
 
   private val bluetoothManager =
@@ -68,6 +72,7 @@ class BluetoothTransportManager(
   private var serverSocket: BluetoothServerSocket? = null
   private var listenerJob: Job? = null
   private var receiverRegistered = false
+  private var listenerScope: CoroutineScope? = null
   private var pendingAuthDeferred: CompletableDeferred<Boolean>? = null
 
   private val discoveryReceiver =
@@ -75,6 +80,16 @@ class BluetoothTransportManager(
       @SuppressLint("MissingPermission")
       override fun onReceive(ctx: Context, intent: Intent) {
         when (intent.action) {
+          BluetoothAdapter.ACTION_STATE_CHANGED -> {
+            val stateInt = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+            if (stateInt == BluetoothAdapter.STATE_OFF) {
+              stopListening()
+            }
+            refreshState(listenerScope)
+          }
+          BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
+            refreshState(listenerScope)
+          }
           BluetoothDevice.ACTION_FOUND -> {
             val device: BluetoothDevice? =
               if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -92,7 +107,7 @@ class BluetoothTransportManager(
                 } ?: return
               val name =
                 try {
-                  d.name ?: "Unnamed Bluetooth Device"
+                  d.name?.takeIf { it.isNotBlank() } ?: "Unnamed Bluetooth Device"
                 } catch (_: SecurityException) {
                   "Bluetooth Device"
                 }
@@ -102,24 +117,55 @@ class BluetoothTransportManager(
                 } catch (_: SecurityException) {
                   false
                 }
+              val hasAppUuid =
+                try {
+                  d.uuids?.any { it.uuid == SERVICE_UUID } == true
+                } catch (_: SecurityException) {
+                  false
+                }
               val current = _state.value.peers.toMutableList()
-              if (current.none { it.address == addr }) {
-                current.add(
-                  DiscoveredBluetoothPeer(
-                    name = name,
-                    address = addr,
-                    isBonded = bonded,
-                  )
+              val idx = current.indexOfFirst { it.address == addr }
+              val entry =
+                DiscoveredBluetoothPeer(
+                  name = name,
+                  address = addr,
+                  isBonded = bonded,
+                  hasDeviceRecorderApp = hasAppUuid,
                 )
-                _state.value = _state.value.copy(peers = current)
+              if (idx >= 0) current[idx] = entry else current.add(entry)
+              _state.value = _state.value.copy(peers = current)
+            }
+          }
+          BluetoothDevice.ACTION_UUID -> {
+            val device: BluetoothDevice? =
+              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+              } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
               }
+            val uuids =
+              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableArrayExtra(BluetoothDevice.EXTRA_UUID, ParcelUuid::class.java)
+              } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableArrayExtra(BluetoothDevice.EXTRA_UUID)
+              }
+            val addr = try { device?.address } catch (_: SecurityException) { null } ?: return
+            val hasApp = uuids?.filterIsInstance<ParcelUuid>()?.any { it.uuid == SERVICE_UUID } == true
+            if (hasApp) {
+              val updated =
+                _state.value.peers.map { p ->
+                  if (p.address == addr) p.copy(hasDeviceRecorderApp = true) else p
+                }
+              _state.value = _state.value.copy(peers = updated)
             }
           }
           BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
             _state.value =
               _state.value.copy(
                 isDiscovering = false,
-                statusMessage = "Bluetooth scan completed.",
+                statusMessage = "Bluetooth scan completed (${_state.value.peers.size} device(s)).",
               )
           }
         }
@@ -148,19 +194,50 @@ class BluetoothTransportManager(
     }
   }
 
+  private fun ensureReceiverRegistered() {
+    if (receiverRegistered) return
+    val filter =
+      IntentFilter().apply {
+        addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
+        addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+        addAction(BluetoothDevice.ACTION_FOUND)
+        addAction(BluetoothDevice.ACTION_UUID)
+        addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
+      }
+    try {
+      ContextCompat.registerReceiver(
+        context,
+        discoveryReceiver,
+        filter,
+        ContextCompat.RECEIVER_EXPORTED,
+      )
+      receiverRegistered = true
+    } catch (_: Exception) {}
+  }
+
   @SuppressLint("MissingPermission")
-  fun refreshState() {
-    val hw = adapter != null
-    val enabled = adapter?.isEnabled == true
+  fun refreshState(autoListenScope: CoroutineScope? = null) {
+    if (autoListenScope != null) {
+      listenerScope = autoListenScope
+    }
+    val currentAdapter = adapter
+    val hw = currentAdapter != null
+    val enabled = currentAdapter?.isEnabled == true
     val perms = hasAllPermissions()
+    if (hw && perms) {
+      ensureReceiverRegistered()
+    }
+
     val bonded =
-      if (hw && enabled && perms) {
+      if (currentAdapter != null && enabled && perms) {
         try {
-          adapter?.bondedDevices?.map {
+          currentAdapter.bondedDevices?.map {
+            val hasAppUuid = it.uuids?.any { parcel -> parcel.uuid == SERVICE_UUID } == true
             DiscoveredBluetoothPeer(
-              name = it.name ?: "Bonded Device",
+              name = it.name?.takeIf { n -> n.isNotBlank() } ?: "Bonded Device",
               address = it.address,
               isBonded = true,
+              hasDeviceRecorderApp = hasAppUuid,
             )
           } ?: emptyList()
         } catch (_: SecurityException) {
@@ -170,13 +247,28 @@ class BluetoothTransportManager(
         emptyList()
       }
 
-    val merged = (_state.value.peers + bonded).distinctBy { it.address }
+    val merged =
+      (_state.value.peers + bonded)
+        .groupBy { it.address }
+        .map { (_, items) ->
+          items.reduce { acc, item ->
+            acc.copy(
+              name = if (item.name != "Unnamed Bluetooth Device") item.name else acc.name,
+              isBonded = acc.isBonded || item.isBonded,
+              hasDeviceRecorderApp = acc.hasDeviceRecorderApp || item.hasDeviceRecorderApp,
+            )
+          }
+        }
+
     val msg =
       when {
         !hw -> "Bluetooth hardware is not available on this device."
         !perms -> "Bluetooth permissions are required before scanning or connecting."
-        !enabled -> "Bluetooth adapter is currently turned off."
-        else -> _state.value.statusMessage.ifBlank { "Bluetooth ready (${bonded.size} paired system devices)." }
+        !enabled -> "Bluetooth is turned off. Turn on Bluetooth to connect."
+        else ->
+          _state.value.statusMessage.ifBlank {
+            "Bluetooth ready (${bonded.size} paired device(s))."
+          }
       }
 
     _state.value =
@@ -187,28 +279,19 @@ class BluetoothTransportManager(
         peers = merged,
         statusMessage = msg,
       )
+
+    if (hw && enabled && perms && listenerScope != null && !_state.value.isListening) {
+      startListening(listenerScope!!)
+    }
   }
 
   @SuppressLint("MissingPermission")
-  fun startDiscovery() {
-    refreshState()
+  fun startDiscovery(scope: CoroutineScope? = null) {
+    refreshState(scope)
     val currentAdapter = adapter ?: return
     if (!hasAllPermissions() || !currentAdapter.isEnabled) return
 
-    if (!receiverRegistered) {
-      val filter =
-        IntentFilter().apply {
-          addAction(BluetoothDevice.ACTION_FOUND)
-          addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
-        }
-      ContextCompat.registerReceiver(
-        context,
-        discoveryReceiver,
-        filter,
-        ContextCompat.RECEIVER_EXPORTED,
-      )
-      receiverRegistered = true
-    }
+    ensureReceiverRegistered()
 
     try {
       if (currentAdapter.isDiscovering) {
@@ -219,7 +302,7 @@ class BluetoothTransportManager(
         _state.value.copy(
           isDiscovering = started,
           statusMessage =
-            if (started) "Scanning for nearby Bluetooth devices..."
+            if (started) "Scanning for nearby devices running Device Recorder..."
             else "Unable to start Bluetooth discovery.",
         )
     } catch (e: Exception) {
@@ -233,20 +316,24 @@ class BluetoothTransportManager(
 
   @SuppressLint("MissingPermission")
   fun startListening(scope: CoroutineScope) {
-    refreshState()
+    listenerScope = scope
     val currentAdapter = adapter ?: return
     if (!hasAllPermissions() || !currentAdapter.isEnabled) return
     if (_state.value.isListening) return
 
+    ensureReceiverRegistered()
     listenerJob =
       scope.launch(Dispatchers.IO) {
         try {
+          // Listen on insecure RFCOMM so two Android devices running Device Recorder
+          // can handshake without OS PIN friction; app-level protocol ID, 6-digit approval,
+          // and AES-256-GCM encryption protect all transfers.
           serverSocket =
-            currentAdapter.listenUsingRfcommWithServiceRecord(SERVICE_NAME, SERVICE_UUID)
+            currentAdapter.listenUsingInsecureRfcommWithServiceRecord(SERVICE_NAME, SERVICE_UUID)
           _state.value =
             _state.value.copy(
               isListening = true,
-              statusMessage = "Listening for authorized Bluetooth connections...",
+              statusMessage = "Listening for Device Recorder peers via Bluetooth.",
             )
           while (_state.value.isListening) {
             val socket = serverSocket?.accept() ?: break
@@ -265,7 +352,7 @@ class BluetoothTransportManager(
   }
 
   fun stopListening() {
-    _state.value = _state.value.copy(isListening = false, statusMessage = "Bluetooth listener stopped.")
+    _state.value = _state.value.copy(isListening = false)
     try {
       serverSocket?.close()
     } catch (_: Exception) {}
@@ -284,6 +371,20 @@ class BluetoothTransportManager(
       val input = DataInputStream(socket.inputStream)
       val output = DataOutputStream(socket.outputStream)
       val helloJson = JSONObject(input.readUTF())
+
+      // Strict Same-App Check: reject any device not running Device Recorder
+      if (helloJson.optString("appProtocolId") != TransferProtocol.APP_PROTOCOL_ID) {
+        output.writeUTF(
+          JSONObject()
+            .put("appProtocolId", TransferProtocol.APP_PROTOCOL_ID)
+            .put("approved", false)
+            .put("reason", "Rejected: Device Recorder app mismatch.")
+            .toString()
+        )
+        output.flush()
+        return
+      }
+
       val remoteDeviceId = helloJson.getString("deviceId")
       val remoteDeviceName = helloJson.optString("deviceName", remoteDeviceId)
       val remoteDeviceModel = helloJson.optString("deviceModel", "Bluetooth Peer")
@@ -309,7 +410,13 @@ class BluetoothTransportManager(
 
       val approved = deferred.await()
       if (!approved) {
-        output.writeUTF(JSONObject().put("approved", false).put("reason", "Rejected by device owner").toString())
+        output.writeUTF(
+          JSONObject()
+            .put("appProtocolId", TransferProtocol.APP_PROTOCOL_ID)
+            .put("approved", false)
+            .put("reason", "Rejected by device owner")
+            .toString()
+        )
         output.flush()
         return
       }
@@ -327,6 +434,7 @@ class BluetoothTransportManager(
 
       output.writeUTF(
         JSONObject()
+          .put("appProtocolId", TransferProtocol.APP_PROTOCOL_ID)
           .put("approved", true)
           .put("deviceId", localId)
           .put("deviceName", localName)
@@ -340,6 +448,7 @@ class BluetoothTransportManager(
         val launched = TransferProtocol.launchInteractiveUninstall(context, pkgToUninstall)
         output.writeUTF(
           JSONObject()
+            .put("appProtocolId", TransferProtocol.APP_PROTOCOL_ID)
             .put("status", if (launched) "PROMPTED_ON_SOURCE" else "FAILED")
             .put(
               "message",
@@ -368,18 +477,36 @@ class BluetoothTransportManager(
   }
 
   @SuppressLint("MissingPermission")
-  suspend fun connectAndSync(peerAddress: String): Result<String> =
+  private suspend fun openConnectedSocket(device: BluetoothDevice): BluetoothSocket {
+    adapter?.let {
+      if (it.isDiscovering) {
+        it.cancelDiscovery()
+        delay(250L)
+      }
+    }
+    return try {
+      val insecure = device.createInsecureRfcommSocketToServiceRecord(SERVICE_UUID)
+      insecure.connect()
+      insecure
+    } catch (firstErr: IOException) {
+      val secure = device.createRfcommSocketToServiceRecord(SERVICE_UUID)
+      secure.connect()
+      secure
+    }
+  }
+
+  @SuppressLint("MissingPermission")
+  suspend fun connectAndSync(peerAddress: String): Result<ImportedSnapshotSummary> =
     withContext(Dispatchers.IO) {
-      val currentAdapter = adapter ?: return@withContext Result.failure(IllegalStateException("Bluetooth unavailable"))
+      val currentAdapter =
+        adapter ?: return@withContext Result.failure(IllegalStateException("Bluetooth unavailable"))
       if (!hasAllPermissions() || !currentAdapter.isEnabled) {
-        return@withContext Result.failure(IllegalStateException("Bluetooth disabled or permissions missing"))
+        return@withContext Result.failure(IllegalStateException("Turn on Bluetooth and grant permissions first"))
       }
 
       try {
-        if (currentAdapter.isDiscovering) currentAdapter.cancelDiscovery()
         val device = currentAdapter.getRemoteDevice(peerAddress)
-        val socket = device.createRfcommSocketToServiceRecord(SERVICE_UUID)
-        socket.connect()
+        val socket = openConnectedSocket(device)
 
         val localId = settingsStore.getLocalDeviceId()
         val localName = settingsStore.getLocalDeviceName()
@@ -392,6 +519,7 @@ class BluetoothTransportManager(
 
         output.writeUTF(
           JSONObject()
+            .put("appProtocolId", TransferProtocol.APP_PROTOCOL_ID)
             .put("action", "PAIR_AND_SYNC")
             .put("deviceId", localId)
             .put("deviceName", localName)
@@ -403,6 +531,12 @@ class BluetoothTransportManager(
         output.flush()
 
         val response = JSONObject(input.readUTF())
+        if (response.optString("appProtocolId") != TransferProtocol.APP_PROTOCOL_ID) {
+          socket.close()
+          return@withContext Result.failure(
+            IllegalStateException("Connected Bluetooth device is not running Device Recorder.")
+          )
+        }
         if (!response.optBoolean("approved", false)) {
           socket.close()
           return@withContext Result.failure(
@@ -414,7 +548,7 @@ class BluetoothTransportManager(
         val envelopeJson = input.readUTF()
         socket.close()
 
-        val (invCount, evCount, callCount) =
+        val summary =
           TransferProtocol.verifyAndImportSnapshot(
             context = context,
             db = db,
@@ -423,35 +557,37 @@ class BluetoothTransportManager(
             transportMethod = TransferProtocol.METHOD_BLUETOOTH,
             bluetoothAddress = peerAddress,
           )
-        val msg = "Verified & imported $invCount apps, $evCount events, $callCount calls via Bluetooth."
+        val msg =
+          "Connected to ${summary.deviceName}: ${summary.inventoryCount} apps, ${summary.eventsCount} events, ${summary.callLogsCount} calls."
         _state.value = _state.value.copy(statusMessage = msg)
-        Result.success(msg)
+        Result.success(summary)
       } catch (e: Exception) {
-        val msg = "Bluetooth connection failed: ${e.message ?: "Unreachable"}"
+        val msg =
+          "Could not connect to Device Recorder on this Bluetooth device. Ensure Device Recorder is open on the other device (${e.message ?: "Unreachable"})."
         _state.value = _state.value.copy(statusMessage = msg)
-        Result.failure(e)
+        Result.failure(IllegalStateException(msg, e))
       }
     }
 
   @SuppressLint("MissingPermission")
   suspend fun sendRemoteUninstall(peerAddress: String, packageName: String): Result<String> =
     withContext(Dispatchers.IO) {
-      val currentAdapter = adapter ?: return@withContext Result.failure(IllegalStateException("Bluetooth unavailable"))
+      val currentAdapter =
+        adapter ?: return@withContext Result.failure(IllegalStateException("Bluetooth unavailable"))
       if (!hasAllPermissions() || !currentAdapter.isEnabled) {
         return@withContext Result.failure(IllegalStateException("Bluetooth disabled or permissions missing"))
       }
 
       try {
-        if (currentAdapter.isDiscovering) currentAdapter.cancelDiscovery()
         val device = currentAdapter.getRemoteDevice(peerAddress)
-        val socket = device.createRfcommSocketToServiceRecord(SERVICE_UUID)
-        socket.connect()
+        val socket = openConnectedSocket(device)
 
         val output = DataOutputStream(socket.outputStream)
         val input = DataInputStream(socket.inputStream)
 
         output.writeUTF(
           JSONObject()
+            .put("appProtocolId", TransferProtocol.APP_PROTOCOL_ID)
             .put("action", "REMOTE_UNINSTALL")
             .put("deviceId", settingsStore.getLocalDeviceId())
             .put("deviceName", settingsStore.getLocalDeviceName())
@@ -463,6 +599,10 @@ class BluetoothTransportManager(
         output.flush()
 
         val ack = JSONObject(input.readUTF())
+        if (ack.optString("appProtocolId") != TransferProtocol.APP_PROTOCOL_ID) {
+          socket.close()
+          return@withContext Result.failure(IllegalStateException("Remote peer does not have Device Recorder active."))
+        }
         if (!ack.optBoolean("approved", false)) {
           socket.close()
           return@withContext Result.failure(IllegalStateException(ack.optString("reason", "Denied")))

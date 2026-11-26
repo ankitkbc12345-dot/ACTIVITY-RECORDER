@@ -16,13 +16,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,7 +45,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
-import com.example.connectivity.TransferProtocol
 import com.example.monitoring.DateTimeUtils
 import com.example.security.CryptoManager
 import com.example.ui.MainViewModel
@@ -65,7 +61,6 @@ fun DeviceSelectionScreen(
   val localName by viewModel.localDeviceName.collectAsStateWithLifecycle()
   val activeId by viewModel.activeDeviceId.collectAsStateWithLifecycle()
   val pairedDevices by viewModel.pairedDevices.collectAsStateWithLifecycle()
-  val internetConfig by viewModel.internetConfig.collectAsStateWithLifecycle()
 
   var showRenameDialog by remember { mutableStateOf(false) }
 
@@ -136,11 +131,6 @@ fun DeviceSelectionScreen(
               }
             }
             Text("Device ID: $localId", style = MaterialTheme.typography.labelSmall)
-            Text(
-              "Offline Encrypted Local Database • Independent of other devices",
-              style = MaterialTheme.typography.bodyMedium,
-              color = MaterialTheme.colorScheme.secondary,
-            )
           }
         }
       }
@@ -153,7 +143,7 @@ fun DeviceSelectionScreen(
           verticalAlignment = Alignment.CenterVertically,
         ) {
           Text(
-            text = "OTHER PAIRED DEVICES (${pairedDevices.size})",
+            text = "CONNECTED DEVICES (${pairedDevices.size})",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
           )
@@ -173,7 +163,7 @@ fun DeviceSelectionScreen(
             Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
               Text("No Paired Devices Yet", style = MaterialTheme.typography.titleMedium)
               Text(
-                "Pair another authorized device over Bluetooth, Wi-Fi Direct, or an optional configured Internet signaling server in Device Connection Management.",
+                "Tap Pair / Connect above to link another phone running Device Recorder via Bluetooth, Wi-Fi Direct, or Internet.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
               )
@@ -183,7 +173,6 @@ fun DeviceSelectionScreen(
       } else {
         items(pairedDevices, key = { it.deviceId }) { dev ->
           val isSelected = activeId == dev.deviceId
-          val methods = dev.availableMethods.split(',').filter { it.isNotBlank() }
           Surface(
             shape = RoundedCornerShape(18.dp),
             color =
@@ -220,60 +209,19 @@ fun DeviceSelectionScreen(
                 }
               }
 
-              Text("Pairing Status: ${dev.pairingStatus}", style = MaterialTheme.typography.bodyMedium)
               Text(
-                "Bluetooth: ${if (dev.bluetoothAddress != null) "Paired (${dev.bluetoothAddress})" else "Not paired"}",
+                text =
+                  if (isSelected) "Active Scope — Viewing this device's data"
+                  else "Tap card to switch view to this device's data",
                 style = MaterialTheme.typography.bodyMedium,
+                color =
+                  if (isSelected) MaterialTheme.colorScheme.primary
+                  else MaterialTheme.colorScheme.onSurfaceVariant,
               )
               Text(
-                "Wi-Fi Direct: ${if (dev.wifiDirectAddress != null) "Available (${dev.wifiDirectAddress})" else "Not linked"}",
-                style = MaterialTheme.typography.bodyMedium,
-              )
-              Text(
-                "Internet: ${if (dev.internetEndpointId != null) "Ready (${dev.internetEndpointId})" else "Ready (Cloud Gateway)"}",
-                style = MaterialTheme.typography.bodyMedium,
-              )
-              Text(
-                "Last Transfer: ${dev.lastTransferTimestampMillis?.let { DateTimeUtils.formatDateTime(it) } ?: "Never"}",
+                "Last Synced: ${dev.lastTransferTimestampMillis?.let { DateTimeUtils.formatDateTime(it) } ?: "Never"}",
                 style = MaterialTheme.typography.labelSmall,
               )
-              Text(
-                "Last Imported Record: ${dev.lastImportedRecordTimestampMillis?.let { DateTimeUtils.formatDateTime(it) } ?: "None"}",
-                style = MaterialTheme.typography.labelSmall,
-              )
-
-              Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-              ) {
-                if (TransferProtocol.METHOD_BLUETOOTH in methods || dev.bluetoothAddress != null) {
-                  OutlinedButton(
-                    onClick = { viewModel.syncPairedDevice(dev, TransferProtocol.METHOD_BLUETOOTH) },
-                    modifier = Modifier.weight(1f),
-                  ) {
-                    Icon(Icons.Default.Bluetooth, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                    Text("BT Sync")
-                  }
-                }
-                if (TransferProtocol.METHOD_WIFI_DIRECT in methods || dev.wifiDirectAddress != null) {
-                  OutlinedButton(
-                    onClick = { viewModel.syncPairedDevice(dev, TransferProtocol.METHOD_WIFI_DIRECT) },
-                    modifier = Modifier.weight(1f),
-                  ) {
-                    Icon(Icons.Default.Wifi, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                    Text("P2P Sync")
-                  }
-                }
-                if (internetConfig.isConfigured) {
-                  OutlinedButton(
-                    onClick = { viewModel.syncPairedDevice(dev, TransferProtocol.METHOD_INTERNET) },
-                    modifier = Modifier.weight(1f),
-                  ) {
-                    Icon(Icons.Default.Public, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                    Text("Net Sync")
-                  }
-                }
-              }
             }
           }
         }

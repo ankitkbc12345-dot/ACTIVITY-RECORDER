@@ -10,9 +10,20 @@
     <string name="calendar_timezone_prefix">Zona horaria local</string>
     <string name="updates_title">Actualizaciones</string>
     <string name="updates_installed_version">Versión instalada</string>
-    <string name="updates_check_button">Comprobar ahora</string>
+    <string name="updates_check_button">Check Updates</string>
     <string name="updates_offline_status">Dispositivo sin conexión. El calendario y el registro local siguen activos.</string>
-    <string name="updates_not_configured">La aplicación está actualizada (Versión oficial v1.0.0).</string>
+    <string name="updates_not_configured">आपका app अप-टू-डेट है</string>
+    <string name="update_banner_available">नया अपडेट उपलब्ध है — अपडेट करें</string>
+    <string name="updates_update_now_button">अपडेट करें</string>
+    <string name="updates_up_to_date">आपका app अप-टू-डेट है</string>
+    <string name="updates_downloading_title">अपडेट डाउनलोड हो रहा है…</string>
+    <string name="updates_permission_required">APK इंस्टॉल करने के लिए “Install unknown apps” अनुमति दें।</string>
+    <string name="updates_allow_permission_button">अनुमति दें</string>
+    <string name="updates_install_apk_button">अभी इंस्टॉल करें</string>
+    <string name="updates_retry_button">पुनः प्रयास करें</string>
+    <string name="updates_download_failed">अपडेट डाउनलोड विफल: %1$s</string>
+    <string name="updates_ready_to_install">नया अपडेट डाउनलोड हो गया है — इंस्टॉल करें</string>
+    <string name="updates_prompt_check">GitHub Release जांचने के लिए Check Updates दबाएँ।</string>
     <string name="login_title">Acceso de Administrador</string>
     <string name="login_subtitle">Autenticación local autorizada</string>
     <string name="login_admin_id">ID de Admin</string>
@@ -43,4 +54,5 @@
     <string name="language_applied">Idioma actualizado</string>
     <string name="module_security">Seguridad</string>
     <string name="module_internet_config">Conectividad a Internet</string>
+    <string name="module_cloud_sync">Sincronización en la nube</string>
 </resources>

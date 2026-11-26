@@ -3,6 +3,7 @@ package com.example
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.room.Room
+import com.example.connectivity.TransferProtocol
 import com.example.data.local.AppActivityEventEntity
 import com.example.data.local.AppDatabase
 import com.example.data.local.AppInventorySnapshotEntity
@@ -14,6 +15,7 @@ import com.example.data.preferences.SettingsStore
 import com.example.security.CryptoManager
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -91,15 +93,18 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `theme mode persistence works offline`() = runTest {
+  fun `default theme mode is bright mode and persistence supports dark light and system`() = runTest {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val store = SettingsStore(context)
+    assertEquals("light", store.themeModeFlow.first())
+    assertTrue(store.getRecordingSettingsOnce().callLogEnabled)
+
     store.setThemeMode("dark")
     assertEquals("dark", store.themeModeFlow.first())
-    store.setThemeMode("light")
-    assertEquals("light", store.themeModeFlow.first())
     store.setThemeMode("system")
     assertEquals("system", store.themeModeFlow.first())
+    store.setThemeMode("light")
+    assertEquals("light", store.themeModeFlow.first())
   }
 
   @Test
@@ -189,5 +194,117 @@ class ExampleRobolectricTest {
     assertEquals(InternetConnectivityConfig.DEFAULT_STUN_URI, config.stunUri)
     assertEquals(InternetConnectivityConfig.DEFAULT_UPDATE_MANIFEST_URL, config.updateManifestUrl)
     assertTrue(config.isAutoConfigured)
+  }
+
+  @Test
+  fun `default admin credentials and firebase database config are properly provisioned`() = runTest {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    assertEquals("ankitkbc12345@gmail.com", BuildConfig.ADMIN_ID)
+    assertEquals("ankitkbc12345", BuildConfig.INITIAL_ADMIN_PASSWORD)
+    assertEquals(
+      "ai-studio-android-deviceac-885f4179-468d-490b-b294-b962ea389986",
+      context.getString(R.string.firestore_database_id),
+    )
+
+    val store = SettingsStore(context)
+    store.ensureInitialProvisioning()
+    assertEquals(
+      LoginOutcome.Success,
+      store.verifyAdminLogin("ankitkbc12345@gmail.com", "ankitkbc12345"),
+    )
+    store.setAdminLoggedIn(false)
+  }
+
+  @Test
+  fun `transfer protocol verifies same-app signature rejects foreign payloads and roundtrips gzip`() = runTest {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).allowMainThreadQueries().build()
+    try {
+      val store = SettingsStore(context)
+      store.ensureInitialProvisioning()
+      val secret = CryptoManager.generatePairingSecret()
+
+      val envelope = TransferProtocol.buildEncryptedRecordSnapshot(context, db, store, secret)
+      val compressed = TransferProtocol.compressTextBase64(envelope)
+      val decompressed = TransferProtocol.decompressTextBase64(compressed)
+      assertEquals(envelope, decompressed)
+
+      val imported =
+        TransferProtocol.verifyAndImportSnapshot(
+          context = context,
+          db = db,
+          envelopeJson = decompressed,
+          sharedSecret = secret,
+          transportMethod = TransferProtocol.METHOD_INTERNET,
+          internetEndpointId = "123456",
+        )
+      assertEquals(store.getLocalDeviceId(), imported.deviceId)
+
+      val foreignEnvelope =
+        JSONObject(envelope).put("appProtocolId", "com.unknown.other.app").toString()
+      var rejected = false
+      try {
+        TransferProtocol.verifyAndImportSnapshot(
+          context = context,
+          db = db,
+          envelopeJson = foreignEnvelope,
+          sharedSecret = secret,
+          transportMethod = TransferProtocol.METHOD_BLUETOOTH,
+        )
+      } catch (_: IllegalArgumentException) {
+        rejected = true
+      }
+      assertTrue(rejected)
+    } finally {
+      db.close()
+    }
+  }
+
+  @Test
+  fun `github release parser detects newer versionCode versionName and apk asset`() {
+    val releaseJson =
+      """
+      {
+        "tag_name": "v1.0.5",
+        "name": "Device Recorder v1.0.5",
+        "body": "Automated Android APK Release\nversionName: 1.0.5\nversionCode: 6",
+        "assets": [
+          {
+            "name": "DeviceRecorder-v1.0.5-b6.apk",
+            "browser_download_url": "https://github.com/ankitkbc12345/Device-Recorder/releases/download/v1.0.5/DeviceRecorder-v1.0.5-b6.apk",
+            "size": 12345678
+          }
+        ]
+      }
+      """.trimIndent()
+
+    val parsed = com.example.updates.GitHubReleaseParser.parseGitHubReleaseJson(releaseJson)
+    assertTrue(parsed != null)
+    assertEquals("1.0.5", parsed!!.versionName)
+    assertEquals(6, parsed.versionCode)
+    assertEquals("DeviceRecorder-v1.0.5-b6.apk", parsed.apkAssetName)
+    assertEquals(12345678L, parsed.apkSizeBytes)
+    assertTrue(parsed.apkDownloadUrl.endsWith(".apk"))
+
+    assertTrue(
+      com.example.updates.GitHubReleaseParser.isNewerVersion(
+        remoteVersionCode = parsed.versionCode,
+        remoteVersionName = parsed.versionName,
+        currentVersionCode = 1,
+        currentVersionName = "1.0",
+      )
+    )
+    assertFalse(
+      com.example.updates.GitHubReleaseParser.isNewerVersion(
+        remoteVersionCode = 1,
+        remoteVersionName = "1.0",
+        currentVersionCode = 1,
+        currentVersionName = "1.0",
+      )
+    )
+    assertEquals(
+      "https://api.github.com/repos/owner/repo/releases/latest",
+      com.example.updates.GitHubReleaseParser.resolveEndpointUrl("https://github.com/owner/repo"),
+    )
   }
 }

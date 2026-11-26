@@ -65,18 +65,21 @@ object CallLogReader {
             "${CallLog.Calls.DATE} DESC",
           )
           ?.use { cursor ->
-            val idIdx = cursor.getColumnIndexOrThrow(CallLog.Calls._ID)
-            val numIdx = cursor.getColumnIndexOrThrow(CallLog.Calls.NUMBER)
-            val typeIdx = cursor.getColumnIndexOrThrow(CallLog.Calls.TYPE)
-            val dateIdx = cursor.getColumnIndexOrThrow(CallLog.Calls.DATE)
-            val durIdx = cursor.getColumnIndexOrThrow(CallLog.Calls.DURATION)
+            val idIdx = cursor.getColumnIndex(CallLog.Calls._ID)
+            val numIdx = cursor.getColumnIndex(CallLog.Calls.NUMBER)
+            val typeIdx = cursor.getColumnIndex(CallLog.Calls.TYPE)
+            val dateIdx = cursor.getColumnIndex(CallLog.Calls.DATE)
+            val durIdx = cursor.getColumnIndex(CallLog.Calls.DURATION)
 
             while (cursor.moveToNext()) {
-              val rowId = cursor.getLong(idIdx)
-              val number = cursor.getString(numIdx)?.ifBlank { "Private / Unknown" } ?: "Private / Unknown"
-              val typeInt = cursor.getInt(typeIdx)
-              val dateMillis = cursor.getLong(dateIdx)
-              val durationSec = cursor.getLong(durIdx).coerceAtLeast(0L)
+              val rowId = if (idIdx >= 0) cursor.getLong(idIdx) else cursor.position.toLong()
+              val rawNum = if (numIdx >= 0) cursor.getString(numIdx) else null
+              val number = rawNum?.trim()?.ifBlank { "Private / Unknown" } ?: "Private / Unknown"
+              val typeInt = if (typeIdx >= 0) cursor.getInt(typeIdx) else CallLog.Calls.INCOMING_TYPE
+              val dateMillis =
+                (if (dateIdx >= 0) cursor.getLong(dateIdx) else System.currentTimeMillis())
+                  .takeIf { it > 0L } ?: System.currentTimeMillis()
+              val durationSec = if (durIdx >= 0) cursor.getLong(durIdx).coerceAtLeast(0L) else 0L
 
               val callType =
                 when (typeInt) {

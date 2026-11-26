@@ -1,13 +1,17 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.DeviceRecorderApp
+import com.example.connectivity.ImportedSnapshotSummary
 import com.example.connectivity.RemoteConnectionStatus
 import com.example.connectivity.TransferProtocol
 import com.example.connectivity.UpdateCheckResult
+import com.example.updates.ApkDownloadState
+import com.example.updates.AppUpdateManager
 import com.example.data.local.AppActivityEventEntity
 import com.example.data.local.AppDatabase
 import com.example.data.local.AppInventorySnapshotEntity
@@ -60,6 +64,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   val bluetoothManager = app.bluetoothManager
   val wifiDirectManager = app.wifiDirectManager
   val internetManager = app.internetManager
+  val appUpdateManager = AppUpdateManager(app, internetManager::isInternetAvailable)
 
   private val _localDeviceId = MutableStateFlow("DEV-LOCAL")
   val localDeviceId: StateFlow<String> = _localDeviceId.asStateFlow()
@@ -91,6 +96,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   private val _isCheckingUpdates = MutableStateFlow(false)
   val isCheckingUpdates: StateFlow<Boolean> = _isCheckingUpdates.asStateFlow()
 
+  private val _apkDownloadState = MutableStateFlow<ApkDownloadState>(ApkDownloadState.Idle)
+  val apkDownloadState: StateFlow<ApkDownloadState> = _apkDownloadState.asStateFlow()
+
+  private var updateDownloadJob: kotlinx.coroutines.Job? = null
+
   private val _storageMetrics = MutableStateFlow(StorageMetrics())
   val storageMetrics: StateFlow<StorageMetrics> = _storageMetrics.asStateFlow()
 
@@ -115,7 +125,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     settingsStore.languageCodeFlow.stateIn(viewModelScope, SharingStarted.Eagerly, "en")
 
   val themeMode: StateFlow<String> =
-    settingsStore.themeModeFlow.stateIn(viewModelScope, SharingStarted.Eagerly, "system")
+    settingsStore.themeModeFlow.stateIn(viewModelScope, SharingStarted.Eagerly, "light")
 
   val remoteUninstallMode: StateFlow<String> =
     settingsStore.remoteUninstallModeFlow.stateIn(
@@ -180,6 +190,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       refreshLocalInventory()
       refreshStorageMetrics()
     }
+    checkUpdates()
   }
 
   fun clearBanner() {
@@ -223,7 +234,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   fun startWifiDirectListening() {
     recordUserActivity()
+    wifiDirectManager.initialize(viewModelScope)
     wifiDirectManager.startSocketListener(viewModelScope)
+  }
+
+  fun startInternetSharing() {
+    recordUserActivity()
+    internetManager.startHostingShareSession(viewModelScope)
+  }
+
+  fun stopInternetSharing() {
+    recordUserActivity()
+    internetManager.stopHostingShareSession()
+  }
+
+  fun onRemoteDeviceSynced(summary: ImportedSnapshotSummary) {
+    _activeDeviceId.value = summary.deviceId
+    refreshStorageMetrics()
+    _statusBanner.value =
+      "Connected to ${summary.deviceName}: ${summary.inventoryCount} apps, ${summary.eventsCount} events, ${summary.callLogsCount} calls ready."
   }
 
   suspend fun changePassword(
@@ -302,7 +331,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   }
 
   fun refreshPermissionStates() {
+    val prev = _callLogPermissionGranted.value
+    val granted = CallLogReader.hasCallLogPermission(app)
+    _callLogPermissionGranted.value = granted
+    if (granted) {
+      app.ensureCallLogObserverRegistered()
+      if (!prev) {
+        viewModelScope.launch {
+          settingsStore.setCallLogRecordingEnabled(true)
+          syncLocalCallLogsInternal(silentIfDisabled = true)
+        }
+      } else {
+        viewModelScope.launch { syncLocalCallLogsInternal(silentIfDisabled = true) }
+      }
+    }
+  }
+
+  fun onCallLogPermissionGranted() {
+    recordUserActivity()
     _callLogPermissionGranted.value = CallLogReader.hasCallLogPermission(app)
+    if (_callLogPermissionGranted.value) {
+      app.ensureCallLogObserverRegistered()
+      viewModelScope.launch {
+        settingsStore.setCallLogRecordingEnabled(true)
+        syncLocalCallLogsInternal(silentIfDisabled = false)
+      }
+    }
   }
 
   fun refreshLocalInventory() {
@@ -326,18 +380,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     recordUserActivity()
     viewModelScope.launch {
       refreshPermissionStates()
-      when (val res = CallLogReader.syncLocalCallLogs(app, settingsStore, db.callLogDao())) {
-        is CallLogSyncResult.Success -> {
-          _callLogSyncStatus.value = "Synced ${res.syncedCount} call log records from device."
-          refreshStorageMetrics()
-        }
-        CallLogSyncResult.PermissionDenied -> {
+      syncLocalCallLogsInternal(silentIfDisabled = false)
+    }
+  }
+
+  private suspend fun syncLocalCallLogsInternal(silentIfDisabled: Boolean) {
+    when (val res = CallLogReader.syncLocalCallLogs(app, settingsStore, db.callLogDao())) {
+      is CallLogSyncResult.Success -> {
+        _callLogSyncStatus.value = "Synced ${res.syncedCount} call log record(s) from device."
+        refreshStorageMetrics()
+      }
+      CallLogSyncResult.PermissionDenied -> {
+        if (!silentIfDisabled) {
           _callLogSyncStatus.value = "READ_CALL_LOG permission is not granted."
         }
-        CallLogSyncResult.RecordingDisabled -> {
+      }
+      CallLogSyncResult.RecordingDisabled -> {
+        if (!silentIfDisabled) {
           _callLogSyncStatus.value = "Call Log Recording is currently paused or disabled."
         }
-        is CallLogSyncResult.Error -> {
+      }
+      is CallLogSyncResult.Error -> {
+        if (!silentIfDisabled) {
           _callLogSyncStatus.value = "Error: ${res.message}"
         }
       }
@@ -345,15 +409,123 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   }
 
   fun checkUpdates() {
+    if (_isCheckingUpdates.value) return
     viewModelScope.launch {
       _isCheckingUpdates.value = true
       try {
         val cfg = settingsStore.getInternetConfigOnce()
-        _updateCheckResult.value = internetManager.checkForUpdates(cfg.updateManifestUrl)
+        val result = appUpdateManager.checkLatestRelease(cfg.updateManifestUrl)
+        _updateCheckResult.value = result
+        if (result is UpdateCheckResult.Checked && !result.updateAvailable) {
+          _apkDownloadState.value = ApkDownloadState.Idle
+        }
       } finally {
         _isCheckingUpdates.value = false
       }
     }
+  }
+
+  fun startUpdateDownloadAndInstall(
+    onLaunchInstall: (Intent) -> Unit,
+    onRequestUnknownAppsPermission: (Intent) -> Unit,
+  ) {
+    recordUserActivity()
+    if (_apkDownloadState.value is ApkDownloadState.Downloading || updateDownloadJob?.isActive == true) {
+      return
+    }
+
+    // If APK is already downloaded locally, handle permission / install directly
+    val existingPath =
+      when (val st = _apkDownloadState.value) {
+        is ApkDownloadState.ReadyToInstall -> st.apkFilePath to st.versionLabel
+        is ApkDownloadState.PermissionRequired -> st.apkFilePath to st.versionLabel
+        else -> null
+      }
+    if (existingPath != null) {
+      val existingFile = File(existingPath.first)
+      if (existingFile.exists() && existingFile.length() > 0L) {
+        proceedToInstallOrRequestPermission(
+          apkFile = existingFile,
+          versionLabel = existingPath.second,
+          onLaunchInstall = onLaunchInstall,
+          onRequestUnknownAppsPermission = onRequestUnknownAppsPermission,
+        )
+        return
+      }
+    }
+
+    val checked = _updateCheckResult.value as? UpdateCheckResult.Checked ?: return
+    if (!checked.updateAvailable || checked.apkDownloadUrl.isBlank()) {
+      _apkDownloadState.value =
+        ApkDownloadState.Failed("Update APK URL unavailable. Tap Check Updates to refresh.")
+      return
+    }
+
+    updateDownloadJob =
+      viewModelScope.launch {
+        _apkDownloadState.value =
+          ApkDownloadState.Downloading(
+            progressPercent = 0,
+            downloadedBytes = 0L,
+            totalBytes = checked.apkSizeBytes,
+          )
+        val downloadResult =
+          appUpdateManager.downloadApk(
+            apkUrl = checked.apkDownloadUrl,
+            versionLabel = checked.latestVersionName,
+            onProgress = { progress -> _apkDownloadState.value = progress },
+          )
+
+        downloadResult.fold(
+          onSuccess = { apkFile ->
+            proceedToInstallOrRequestPermission(
+              apkFile = apkFile,
+              versionLabel = checked.latestVersionName,
+              onLaunchInstall = onLaunchInstall,
+              onRequestUnknownAppsPermission = onRequestUnknownAppsPermission,
+            )
+          },
+          onFailure = { error ->
+            _apkDownloadState.value =
+              ApkDownloadState.Failed(error.message ?: "APK download failed. Please retry.")
+          },
+        )
+      }
+  }
+
+  private fun proceedToInstallOrRequestPermission(
+    apkFile: File,
+    versionLabel: String,
+    onLaunchInstall: (Intent) -> Unit,
+    onRequestUnknownAppsPermission: (Intent) -> Unit,
+  ) {
+    if (appUpdateManager.canInstallUnknownApps()) {
+      _apkDownloadState.value = ApkDownloadState.ReadyToInstall(apkFile.absolutePath, versionLabel)
+      onLaunchInstall(appUpdateManager.createInstallApkIntent(apkFile))
+    } else {
+      _apkDownloadState.value =
+        ApkDownloadState.PermissionRequired(apkFile.absolutePath, versionLabel)
+      onRequestUnknownAppsPermission(appUpdateManager.createUnknownSourcesSettingsIntent())
+    }
+  }
+
+  fun onUnknownAppsPermissionResult(onLaunchInstall: (Intent) -> Unit) {
+    recordUserActivity()
+    val state = _apkDownloadState.value as? ApkDownloadState.PermissionRequired ?: return
+    val apkFile = File(state.apkFilePath)
+    if (!apkFile.exists() || apkFile.length() == 0L) {
+      _apkDownloadState.value = ApkDownloadState.Failed("Downloaded APK missing. Please download again.")
+      return
+    }
+    if (appUpdateManager.canInstallUnknownApps()) {
+      _apkDownloadState.value =
+        ApkDownloadState.ReadyToInstall(state.apkFilePath, state.versionLabel)
+      onLaunchInstall(appUpdateManager.createInstallApkIntent(apkFile))
+    }
+  }
+
+  fun resetUpdateDownloadState() {
+    _apkDownloadState.value = ApkDownloadState.Idle
   }
 
   fun setLanguageCode(code: String) {
@@ -406,7 +578,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   fun syncPairedDevice(device: PairedDeviceEntity, method: String) {
     recordUserActivity()
     viewModelScope.launch {
-      val result =
+      val result: Result<ImportedSnapshotSummary> =
         when (method) {
           TransferProtocol.METHOD_BLUETOOTH -> {
             val addr = device.bluetoothAddress
@@ -425,12 +597,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
           }
           else -> Result.failure(IllegalArgumentException("Unsupported connection method"))
         }
-      _statusBanner.value =
-        result.fold(
-          onSuccess = { it },
-          onFailure = { "Sync failed: ${it.message ?: "Device unreachable"}" },
-        )
-      refreshStorageMetrics()
+      result.fold(
+        onSuccess = { summary -> onRemoteDeviceSynced(summary) },
+        onFailure = {
+          _statusBanner.value = "Sync failed: ${it.message ?: "Device unreachable"}"
+          refreshStorageMetrics()
+        },
+      )
     }
   }
 

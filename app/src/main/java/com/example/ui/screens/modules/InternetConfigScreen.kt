@@ -350,7 +350,7 @@ fun InternetConfigScreen(
               OutlinedTextField(
                 value = updateManifestUrl,
                 onValueChange = { updateManifestUrl = it },
-                label = { Text("Optional Update Manifest JSON URL (https://...)") },
+                label = { Text("GitHub Releases API or Repo (owner/repo)") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
               )

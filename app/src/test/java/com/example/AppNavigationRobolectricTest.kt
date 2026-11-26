@@ -79,4 +79,27 @@ class AppNavigationRobolectricTest {
     toolbar.hide()
     assertEquals(1, finishCount)
   }
+
+  @Test
+  fun `home screen shows red update banner when newer release is available`() {
+    composeTestRule.waitForIdle()
+    val vm = androidx.lifecycle.ViewModelProvider(composeTestRule.activity)[com.example.ui.MainViewModel::class.java]
+    val field = com.example.ui.MainViewModel::class.java.getDeclaredField("_updateCheckResult")
+    field.isAccessible = true
+    @Suppress("UNCHECKED_CAST")
+    val stateFlow =
+      field.get(vm) as kotlinx.coroutines.flow.MutableStateFlow<com.example.connectivity.UpdateCheckResult>
+    stateFlow.value =
+      com.example.connectivity.UpdateCheckResult.Checked(
+        latestVersionName = "1.0.9",
+        latestVersionCode = 10,
+        updateAvailable = true,
+        releaseNotes = "versionCode: 10",
+        apkDownloadUrl = "https://example.com/app.apk",
+        apkAssetName = "app.apk",
+        apkSizeBytes = 1024L,
+      )
+    composeTestRule.waitForIdle()
+    composeTestRule.onNodeWithTag("home_update_banner").assertIsDisplayed()
+  }
 }

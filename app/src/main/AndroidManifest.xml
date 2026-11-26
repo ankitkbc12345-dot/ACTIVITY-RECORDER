@@ -40,6 +40,9 @@
     <!-- User-confirmed package uninstall requests (Remote Application Management) -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
+    <!-- Self-update APK installation via Android Package Installer (Android 8+) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <uses-feature
         android:name="android.hardware.bluetooth"
         android:required="false" />

@@ -23,7 +23,7 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 data class RecordingSettings(
   val masterEnabled: Boolean = true,
   val appTrackingEnabled: Boolean = true,
-  val callLogEnabled: Boolean = false,
+  val callLogEnabled: Boolean = true,
 )
 
 data class SecuritySettingsState(
@@ -50,7 +50,8 @@ data class InternetConnectivityConfig(
   companion object {
     const val DEFAULT_SIGNALING_URL = "wss://echo.websocket.events"
     const val DEFAULT_STUN_URI = "stun:stun.l.google.com:19302"
-    const val DEFAULT_UPDATE_MANIFEST_URL = "https://raw.githubusercontent.com/aistudio/devicerecorder/main/update_manifest.json"
+    val DEFAULT_UPDATE_MANIFEST_URL: String
+      get() = "https://api.github.com/repos/${BuildConfig.GITHUB_REPO}/releases/latest"
   }
 }
 
@@ -92,7 +93,7 @@ class SettingsStore(private val context: Context) {
       RecordingSettings(
         masterEnabled = prefs[Keys.MASTER_RECORDING] ?: true,
         appTrackingEnabled = prefs[Keys.APP_TRACKING] ?: true,
-        callLogEnabled = prefs[Keys.CALL_LOG_RECORDING] ?: false,
+        callLogEnabled = prefs[Keys.CALL_LOG_RECORDING] ?: true,
       )
     }
 
@@ -114,7 +115,7 @@ class SettingsStore(private val context: Context) {
     context.dataStore.data.map { prefs -> prefs[Keys.LANGUAGE_CODE] ?: "en" }
 
   val themeModeFlow: Flow<String> =
-    context.dataStore.data.map { prefs -> prefs[Keys.THEME_MODE] ?: "system" }
+    context.dataStore.data.map { prefs -> prefs[Keys.THEME_MODE] ?: "light" }
 
   val remoteUninstallModeFlow: Flow<String> =
     context.dataStore.data.map { prefs -> prefs[Keys.REMOTE_UNINSTALL_MODE] ?: "MODE_B_INTERACTIVE" }
@@ -168,6 +169,8 @@ class SettingsStore(private val context: Context) {
       if (existingHash.isNullOrBlank() || (!userChanged && prevFingerprint != fingerprint)) {
         prefs[Keys.ADMIN_PASSWORD_HASH] = CryptoManager.hashPassword(buildInitialPass)
         prefs[Keys.PROVISIONED_FINGERPRINT] = fingerprint
+        prefs[Keys.FAILED_ATTEMPTS] = 0
+        prefs[Keys.LOCKOUT_UNTIL_MILLIS] = 0L
       }
     }
   }
@@ -199,7 +202,7 @@ class SettingsStore(private val context: Context) {
 
       val storedAdminId = prefs[Keys.ADMIN_ID] ?: BuildConfig.ADMIN_ID
       val storedHash = prefs[Keys.ADMIN_PASSWORD_HASH] ?: ""
-      val idMatches = inputId.trim() == storedAdminId
+      val idMatches = inputId.trim().equals(storedAdminId, ignoreCase = true)
       val passwordMatches =
         storedHash.isNotEmpty() && CryptoManager.verifyPassword(inputPassword, storedHash)
 
@@ -250,7 +253,7 @@ class SettingsStore(private val context: Context) {
       }
       val storedAdminId = prefs[Keys.ADMIN_ID] ?: BuildConfig.ADMIN_ID
       val storedHash = prefs[Keys.ADMIN_PASSWORD_HASH] ?: ""
-      val idMatches = adminId.trim() == storedAdminId
+      val idMatches = adminId.trim().equals(storedAdminId, ignoreCase = true)
       val passwordMatches =
         storedHash.isNotEmpty() && CryptoManager.verifyPassword(currentPassword, storedHash)
 
