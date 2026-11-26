@@ -5,6 +5,14 @@
     <!-- Call log metadata access (runtime permission; never requests audio/microphone) -->
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
 
+    <!-- Optional Android Usage Access for historical screen-unlock query (UsageEvents.KEYGUARD_HIDDEN) -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Re-schedule local recording & cloud sync jobs across device reboots -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <!-- Bluetooth permissions (Android 12+ and legacy <= 30) -->
     <uses-permission
         android:name="android.permission.BLUETOOTH"
@@ -95,6 +103,26 @@
                 <data android:scheme="package" />
             </intent-filter>
         </receiver>
+
+        <receiver
+            android:name=".data.remote.BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name=".monitoring.CallLogSyncJobService"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false" />
+
+        <service
+            android:name=".data.remote.CloudSyncJobService"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

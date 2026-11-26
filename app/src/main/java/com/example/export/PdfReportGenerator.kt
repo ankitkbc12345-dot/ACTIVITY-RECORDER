@@ -7,6 +7,7 @@ import android.graphics.pdf.PdfDocument
 import com.example.data.local.AppActivityEventEntity
 import com.example.data.local.AppInventorySnapshotEntity
 import com.example.data.local.CallLogEntity
+import com.example.data.local.DeviceUnlockEventEntity
 import com.example.monitoring.DateTimeUtils
 import java.io.OutputStream
 
@@ -17,6 +18,7 @@ data class PdfReportRequest(
   val includeInventory: Boolean,
   val includeEvents: Boolean,
   val includeCallLogs: Boolean,
+  val includeUnlockLogs: Boolean = true,
   val dateFilterStart: String? = null,
   val dateFilterEnd: String? = null,
 )
@@ -28,6 +30,7 @@ object PdfReportGenerator {
     inventory: List<AppInventorySnapshotEntity>,
     events: List<AppActivityEventEntity>,
     callLogs: List<CallLogEntity>,
+    unlockLogs: List<DeviceUnlockEventEntity> = emptyList(),
     outputStream: OutputStream,
   ): Int {
     val pdf = PdfDocument()
@@ -91,7 +94,6 @@ object PdfReportGenerator {
       y += 14f
     }
 
-    // Header
     canvas.drawText("Personal Device Activity Report", margin, y, titlePaint)
     y += 20f
     canvas.drawText(
@@ -118,12 +120,11 @@ object PdfReportGenerator {
     canvas.drawLine(margin, y, pageWidth - margin, y, dividerPaint)
     y += 16f
 
-    // Summary stats
     val installedCount = inventory.count { it.isInstalled }
     val installEventsCount = events.count { it.eventType == "INSTALLED" }
     val uninstallEventsCount = events.count { it.eventType == "UNINSTALLED" }
     canvas.drawText(
-      "Summary: Inventory=$installedCount installed (${inventory.size} tracked) | Installs=$installEventsCount | Uninstalls=$uninstallEventsCount | Calls=${callLogs.size}",
+      "Summary: Inventory=$installedCount/${inventory.size} | Installs=$installEventsCount | Uninstalls=$uninstallEventsCount | Calls=${callLogs.size} | Unlocks=${unlockLogs.size}",
       margin,
       y,
       bodyPaint,
@@ -139,7 +140,8 @@ object PdfReportGenerator {
       } else {
         for (ev in events) {
           ensureSpace(lineHeight * 2)
-          val line1 = "${ev.eventDate} ${ev.eventTime}  [${ev.eventType}]  ${ev.appName.take(32)}"
+          val bat = ev.batteryPercent?.let { " | Bat: $it%" } ?: ""
+          val line1 = "${ev.eventDate} ${ev.eventTime}  [${ev.eventType}]  ${ev.appName.take(30)}$bat"
           val line2 = "  pkg=${ev.packageName} | ver=${ev.versionName} | source=${ev.installerLabel}"
           canvas.drawText(line1, margin, y, bodyPaint)
           y += 12f
@@ -158,9 +160,31 @@ object PdfReportGenerator {
       } else {
         for (log in callLogs) {
           ensureSpace(lineHeight)
+          val caller =
+            if (log.contactName.isNotBlank()) "${log.contactName.take(16)} (${log.phoneNumber})"
+            else log.phoneNumber
+          val bat = log.batteryPercent?.let { " | $it%" } ?: ""
           val line =
-            "${log.callDate} ${log.callTime} | ${log.callType.padEnd(9)} | ${log.phoneNumber.take(20).padEnd(20)} | ${DateTimeUtils.formatDuration(log.durationSeconds)}"
-          canvas.drawText(line, margin, y, monoPaint)
+            "${log.callDate} ${log.callTime} | ${log.callType.padEnd(8)} | ${caller.take(26).padEnd(26)} | ${DateTimeUtils.formatDuration(log.durationSeconds)}$bat"
+          canvas.drawText(line.take(94), margin, y, monoPaint)
+          y += 14f
+        }
+      }
+    }
+
+    if (request.includeUnlockLogs) {
+      drawSectionTitle("Device Unlock History (${unlockLogs.size})")
+      if (unlockLogs.isEmpty()) {
+        ensureSpace(lineHeight)
+        canvas.drawText("No recorded device unlock events.", margin, y, bodyPaint)
+        y += lineHeight
+      } else {
+        for (unlock in unlockLogs) {
+          ensureSpace(lineHeight)
+          val bat = unlock.batteryPercent?.let { " | Bat: $it%" } ?: ""
+          val line =
+            "${unlock.unlockDate} ${unlock.unlockTime} | ${unlock.unlockMethod.take(38)}$bat | ${unlock.source}"
+          canvas.drawText(line.take(94), margin, y, monoPaint)
           y += 14f
         }
       }

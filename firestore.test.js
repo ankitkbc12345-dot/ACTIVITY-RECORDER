@@ -141,6 +141,7 @@ test("Authenticated owner: valid CloudDeviceSnapshot create, partial update, que
       appCount: 42,
       activityCount: 12,
       callLogCount: 6,
+      unlockCount: 14,
       summaryNote: "Encrypted snapshot synced",
       syncStatus: "SYNCED",
       createdAt: created,
@@ -155,6 +156,7 @@ test("Authenticated owner: valid CloudDeviceSnapshot create, partial update, que
       appCount: 45,
       activityCount: 15,
       callLogCount: 8,
+      unlockCount: 19,
       syncStatus: "PAUSED",
       updatedAt: new Date(Date.now() - 1000),
     })
@@ -237,6 +239,23 @@ test("Authenticated owner: valid CloudActivityRecord create, query, and bounds e
       eventDate: "2026-11-25",
       eventTime: "14:20:00",
       recordedAtMillis: 1764080400000,
+      createdAt: created,
+      updatedAt: created,
+    })
+  );
+
+  // UNLOCK_LOG record aligned with UnlockTracker + FirestoreSyncRepository
+  await assertSucceeds(
+    recordsRef.doc("UL_001").set({
+      userId: ALICE_UID,
+      deviceId: "DEV-ALICE1",
+      recordCategory: "UNLOCK_LOG",
+      title: "Secured (Fingerprint or PIN/Pattern)",
+      subtitle: "BIOMETRIC_ENROLLED • Bat: 84%",
+      detail: "Source: LIVE_RECEIVER",
+      eventDate: "2026-11-26",
+      eventTime: "09:15:00",
+      recordedAtMillis: 1764148500000,
       createdAt: created,
       updatedAt: created,
     })

@@ -10,14 +10,15 @@ import com.example.connectivity.ImportedSnapshotSummary
 import com.example.connectivity.RemoteConnectionStatus
 import com.example.connectivity.TransferProtocol
 import com.example.connectivity.UpdateCheckResult
-import com.example.updates.ApkDownloadState
-import com.example.updates.AppUpdateManager
 import com.example.data.local.AppActivityEventEntity
 import com.example.data.local.AppDatabase
 import com.example.data.local.AppInventorySnapshotEntity
 import com.example.data.local.CallLogEntity
+import com.example.data.local.DeviceUnlockEventEntity
 import com.example.data.local.PairedDeviceEntity
 import com.example.data.local.RemoteUninstallRequestEntity
+import com.example.data.preferences.CloudSyncPreferences
+import com.example.data.preferences.CloudSyncSchedule
 import com.example.data.preferences.InternetConnectivityConfig
 import com.example.data.preferences.LoginOutcome
 import com.example.data.preferences.PasswordChangeOutcome
@@ -27,10 +28,15 @@ import com.example.export.BackupRestoreSummary
 import com.example.export.EncryptedBackupManager
 import com.example.export.PdfReportGenerator
 import com.example.export.PdfReportRequest
+import com.example.monitoring.BatteryStatusInfo
+import com.example.monitoring.BatteryUtils
 import com.example.monitoring.CallLogReader
 import com.example.monitoring.CallLogSyncResult
 import com.example.monitoring.PackageInventoryScanner
+import com.example.monitoring.UnlockTracker
 import com.example.security.CryptoManager
+import com.example.updates.ApkDownloadState
+import com.example.updates.AppUpdateManager
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +58,7 @@ data class StorageMetrics(
   val totalEvents: Int = 0,
   val totalInventory: Int = 0,
   val totalCallLogs: Int = 0,
+  val totalUnlockLogs: Int = 0,
   val totalPairedDevices: Int = 0,
 )
 
@@ -99,6 +106,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   private val _callLogSyncStatus = MutableStateFlow("")
   val callLogSyncStatus: StateFlow<String> = _callLogSyncStatus.asStateFlow()
 
+  private val _batteryStatus = MutableStateFlow(BatteryUtils.getBatteryStatus(app))
+  val batteryStatus: StateFlow<BatteryStatusInfo> = _batteryStatus.asStateFlow()
+
   private val _isScanningInventory = MutableStateFlow(false)
   val isScanningInventory: StateFlow<Boolean> = _isScanningInventory.asStateFlow()
 
@@ -127,6 +137,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       viewModelScope,
       SharingStarted.Eagerly,
       RecordingSettings(),
+    )
+
+  val cloudSyncPreferences: StateFlow<CloudSyncPreferences> =
+    settingsStore.cloudSyncPreferencesFlow.stateIn(
+      viewModelScope,
+      SharingStarted.Eagerly,
+      CloudSyncPreferences(),
     )
 
   val securitySettings: StateFlow<SecuritySettingsState> =
@@ -175,9 +192,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     _activeDeviceId
       .flatMapLatest { devId ->
         db.callLogDao().observeCallLogsForDevice(devId).map { list ->
-          list.map { it.copy(phoneNumber = CryptoManager.decryptField(app, it.phoneNumber)) }
+          list.map { log ->
+            log.copy(
+              phoneNumber = CryptoManager.decryptField(app, log.phoneNumber),
+              contactName =
+                if (log.contactName.isNotEmpty()) {
+                  CryptoManager.decryptField(app, log.contactName).let {
+                    if (it == "Unavailable") "" else it
+                  }
+                } else "",
+            )
+          }
         }
       }
+      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+  val activeUnlockEvents: StateFlow<List<DeviceUnlockEventEntity>> =
+    _activeDeviceId
+      .flatMapLatest { devId -> db.unlockEventDao().observeUnlockEventsForDevice(devId) }
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
   val remoteUninstallRequests: StateFlow<List<RemoteUninstallRequestEntity>> =
@@ -202,7 +234,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       _localDeviceId.value = localId
       _localDeviceName.value = localName
       _activeDeviceId.value = localId
+      refreshBatteryStatus()
       refreshLocalInventory()
+      refreshUnlockLogs()
       refreshStorageMetrics()
     }
     checkUpdates()
@@ -220,14 +254,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     _lastActivityMillis.value = System.currentTimeMillis()
   }
 
+  fun refreshBatteryStatus() {
+    _batteryStatus.value = BatteryUtils.getBatteryStatus(app)
+  }
+
   suspend fun login(adminId: String, password: String): LoginOutcome {
     val outcome = settingsStore.verifyAdminLogin(adminId, password)
     if (outcome is LoginOutcome.Success) {
       authStateExplicitlySet = true
       _lastActivityMillis.value = System.currentTimeMillis()
       _isAdminAuthenticated.value = true
+      refreshBatteryStatus()
       refreshPermissionStates()
       refreshLocalInventory()
+      refreshUnlockLogs()
       refreshStorageMetrics()
     }
     return outcome
@@ -267,7 +307,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     _activeDeviceId.value = summary.deviceId
     refreshStorageMetrics()
     _statusBanner.value =
-      "Connected to ${summary.deviceName}: ${summary.inventoryCount} apps, ${summary.eventsCount} events, ${summary.callLogsCount} calls ready."
+      "Connected to ${summary.deviceName}: ${summary.inventoryCount} apps, ${summary.eventsCount} events, ${summary.callLogsCount} calls, ${summary.unlockLogsCount} unlocks."
   }
 
   suspend fun changePassword(
@@ -345,7 +385,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
+  fun setUnlockTrackingEnabled(enabled: Boolean) {
+    recordUserActivity()
+    viewModelScope.launch {
+      settingsStore.setUnlockTrackingEnabled(enabled)
+      if (enabled && recordingSettings.value.masterEnabled) {
+        refreshUnlockLogs()
+      }
+    }
+  }
+
+  fun setCloudSyncSchedule(schedule: CloudSyncSchedule) {
+    recordUserActivity()
+    viewModelScope.launch { settingsStore.setCloudSyncSchedule(schedule) }
+  }
+
+  fun setCloudSyncDailyTime(hour: Int, minute: Int) {
+    recordUserActivity()
+    viewModelScope.launch { settingsStore.setCloudSyncDailyTime(hour, minute) }
+  }
+
+  fun setCloudSyncDataToggles(
+    syncCallLogs: Boolean,
+    syncAppActivity: Boolean,
+    syncUnlockLogs: Boolean,
+  ) {
+    recordUserActivity()
+    viewModelScope.launch {
+      settingsStore.setCloudSyncDataToggles(syncCallLogs, syncAppActivity, syncUnlockLogs)
+    }
+  }
+
+  fun refreshUnlockLogs() {
+    refreshBatteryStatus()
+    viewModelScope.launch {
+      UnlockTracker.syncUsageStatsUnlocks(
+        context = app,
+        settingsStore = settingsStore,
+        unlockEventDao = db.unlockEventDao(),
+      )
+      refreshStorageMetrics()
+    }
+  }
+
   fun refreshPermissionStates() {
+    refreshBatteryStatus()
     val prev = _callLogPermissionGranted.value
     val granted = CallLogReader.hasCallLogPermission(app)
     _callLogPermissionGranted.value = granted
@@ -388,6 +472,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   }
 
   fun refreshLocalInventory() {
+    refreshBatteryStatus()
     viewModelScope.launch {
       _isScanningInventory.value = true
       try {
@@ -406,6 +491,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   fun syncLocalCallLogs() {
     recordUserActivity()
+    refreshBatteryStatus()
     viewModelScope.launch {
       val granted = CallLogReader.hasCallLogPermission(app)
       _callLogPermissionGranted.value = granted
@@ -534,7 +620,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       return
     }
 
-    // If APK is already downloaded locally, handle permission / install directly
     val existingPath =
       when (val st = _apkDownloadState.value) {
         is ApkDownloadState.ReadyToInstall -> st.apkFilePath to st.versionLabel
@@ -721,10 +806,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch {
       val reqId = UUID.randomUUID().toString()
       val now = System.currentTimeMillis()
-      val isManagedCheckOk =
-        if (mode == "MODE_A_MANAGED") {
-          false // Remote peer must hold Device Owner; handled transparently below
-        } else true
+      val isManagedCheckOk = if (mode == "MODE_A_MANAGED") false else true
 
       if (!isManagedCheckOk && method == TransferProtocol.METHOD_INTERNET && !internetConfig.value.isConfigured) {
         db.remoteUninstallDao()
@@ -787,6 +869,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     includeInventory: Boolean,
     includeEvents: Boolean,
     includeCallLogs: Boolean,
+    includeUnlockLogs: Boolean = true,
     dateStart: String?,
     dateEnd: String?,
   ): Result<Int> =
@@ -807,7 +890,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 (dateStart.isNullOrBlank() || c.callDate >= dateStart) &&
                   (dateEnd.isNullOrBlank() || c.callDate <= dateEnd)
               }
-              .map { it.copy(phoneNumber = CryptoManager.decryptField(app, it.phoneNumber)) }
+              .map { log ->
+                log.copy(
+                  phoneNumber = CryptoManager.decryptField(app, log.phoneNumber),
+                  contactName =
+                    if (log.contactName.isNotEmpty()) CryptoManager.decryptField(app, log.contactName) else "",
+                )
+              }
+          } else emptyList()
+        val unlocks =
+          if (includeUnlockLogs) {
+            db.unlockEventDao().getUnlockEventsForDeviceOnce(deviceId).filter { u ->
+              (dateStart.isNullOrBlank() || u.unlockDate >= dateStart) &&
+                (dateEnd.isNullOrBlank() || u.unlockDate <= dateEnd)
+            }
           } else emptyList()
 
         val stream =
@@ -823,12 +919,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 includeInventory = includeInventory,
                 includeEvents = includeEvents,
                 includeCallLogs = includeCallLogs,
+                includeUnlockLogs = includeUnlockLogs,
                 dateFilterStart = dateStart,
                 dateFilterEnd = dateEnd,
               ),
             inventory = inv,
             events = ev,
             callLogs = calls,
+            unlockLogs = unlocks,
             outputStream = stream,
           )
         Result.success(pages)
@@ -843,6 +941,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     includeInventory: Boolean,
     includeEvents: Boolean,
     includeCallLogs: Boolean,
+    includeUnlockLogs: Boolean = true,
   ): Result<File> =
     withContext(Dispatchers.IO) {
       try {
@@ -853,8 +952,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val calls =
           if (includeCallLogs) {
             db.callLogDao().getCallLogsForDeviceOnce(deviceId)
-              .map { it.copy(phoneNumber = CryptoManager.decryptField(app, it.phoneNumber)) }
+              .map { log ->
+                log.copy(
+                  phoneNumber = CryptoManager.decryptField(app, log.phoneNumber),
+                  contactName =
+                    if (log.contactName.isNotEmpty()) CryptoManager.decryptField(app, log.contactName) else "",
+                )
+              }
           } else emptyList()
+        val unlocks =
+          if (includeUnlockLogs) db.unlockEventDao().getUnlockEventsForDeviceOnce(deviceId)
+          else emptyList()
 
         PdfReportGenerator.generatePdfReport(
           request =
@@ -865,10 +973,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
               includeInventory = includeInventory,
               includeEvents = includeEvents,
               includeCallLogs = includeCallLogs,
+              includeUnlockLogs = includeUnlockLogs,
             ),
           inventory = inv,
           events = ev,
           callLogs = calls,
+          unlockLogs = unlocks,
           outputStream = file.outputStream(),
         )
         Result.success(file)
@@ -937,12 +1047,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
+  fun clearUnlockLogs(olderThanDays: Int?) {
+    recordUserActivity()
+    viewModelScope.launch {
+      val targetId = _activeDeviceId.value
+      val deleted =
+        if (olderThanDays == null) {
+          db.unlockEventDao().deleteUnlockEventsForDevice(targetId)
+        } else {
+          val cutoff = System.currentTimeMillis() - (olderThanDays * 86_400_000L)
+          db.unlockEventDao().deleteUnlockEventsOlderThan(targetId, cutoff)
+        }
+      refreshStorageMetrics()
+      _statusBanner.value = "Removed $deleted unlock log record(s)."
+    }
+  }
+
   fun clearDeviceSnapshotData(deviceId: String) {
     recordUserActivity()
     viewModelScope.launch {
       db.appActivityDao().deleteEventsForDevice(deviceId)
       db.appInventoryDao().deleteInventoryForDevice(deviceId)
       db.callLogDao().deleteCallLogsForDevice(deviceId)
+      db.unlockEventDao().deleteUnlockEventsForDevice(deviceId)
       db.remoteUninstallDao().deleteRequestsForDevice(deviceId)
       refreshStorageMetrics()
       _statusBanner.value = "Cleared stored records for device $deviceId."
@@ -972,6 +1099,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
           totalEvents = db.appActivityDao().getTotalEventCount(),
           totalInventory = db.appInventoryDao().getTotalInventoryCount(),
           totalCallLogs = db.callLogDao().getTotalCallLogCount(),
+          totalUnlockLogs = db.unlockEventDao().getTotalUnlockEventCount(),
           totalPairedDevices = db.pairedDeviceDao().getTotalPairedDevicesCount(),
         )
     }

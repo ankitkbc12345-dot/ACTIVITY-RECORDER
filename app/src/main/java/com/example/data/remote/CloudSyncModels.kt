@@ -20,7 +20,8 @@ enum class CloudSyncStatus {
 enum class CloudRecordCategory {
   APP_EVENT,
   APP_INVENTORY,
-  CALL_LOG;
+  CALL_LOG,
+  UNLOCK_LOG;
 
   companion object {
     fun fromRaw(raw: String?): CloudRecordCategory =
@@ -72,6 +73,7 @@ data class CloudDeviceSnapshot(
   val appCount: Long = 0L,
   val activityCount: Long = 0L,
   val callLogCount: Long = 0L,
+  val unlockCount: Long = 0L,
   val summaryNote: String? = null,
   val syncStatus: String = CloudSyncStatus.SYNCED.name,
   @ServerTimestamp val createdAt: Timestamp? = null,
@@ -88,6 +90,7 @@ data class CloudDeviceSnapshot(
       put("appCount", appCount.coerceAtLeast(0L))
       put("activityCount", activityCount.coerceAtLeast(0L))
       put("callLogCount", callLogCount.coerceAtLeast(0L))
+      put("unlockCount", unlockCount.coerceAtLeast(0L))
       put("summaryNote", summaryNote?.trim()?.take(500)?.takeIf { it.isNotEmpty() })
       put("syncStatus", resolvedStatus().name)
       put("createdAt", FieldValue.serverTimestamp())
@@ -101,6 +104,7 @@ data class CloudDeviceSnapshot(
       put("appCount", appCount.coerceAtLeast(0L))
       put("activityCount", activityCount.coerceAtLeast(0L))
       put("callLogCount", callLogCount.coerceAtLeast(0L))
+      put("unlockCount", unlockCount.coerceAtLeast(0L))
       put("summaryNote", summaryNote?.trim()?.take(500)?.takeIf { it.isNotEmpty() })
       put("syncStatus", resolvedStatus().name)
       put("updatedAt", FieldValue.serverTimestamp())

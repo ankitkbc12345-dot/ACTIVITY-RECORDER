@@ -9,6 +9,7 @@ import com.example.data.local.AppActivityEventEntity
 import com.example.data.local.AppDatabase
 import com.example.data.local.AppInventorySnapshotEntity
 import com.example.data.local.CallLogEntity
+import com.example.data.local.DeviceUnlockEventEntity
 import com.example.data.local.PairedDeviceEntity
 import com.example.data.preferences.SettingsStore
 import com.example.security.CryptoManager
@@ -37,6 +38,7 @@ data class ImportedSnapshotSummary(
   val inventoryCount: Int,
   val eventsCount: Int,
   val callLogsCount: Int,
+  val unlockLogsCount: Int = 0,
 )
 
 object TransferProtocol {
@@ -74,6 +76,7 @@ object TransferProtocol {
       val events = db.appActivityDao().getEventsForDeviceOnce(localId)
       val inventory = db.appInventoryDao().getInventoryForDeviceOnce(localId)
       val callLogs = db.callLogDao().getCallLogsForDeviceOnce(localId)
+      val unlockLogs = db.unlockEventDao().getUnlockEventsForDeviceOnce(localId)
 
       val payload =
         JSONObject().apply {
@@ -99,6 +102,7 @@ object TransferProtocol {
                     put("eventDate", ev.eventDate)
                     put("eventTime", ev.eventTime)
                     put("timestampMillis", ev.timestampMillis)
+                    put("batteryPercent", ev.batteryPercent ?: JSONObject.NULL)
                   }
                 )
               }
@@ -134,11 +138,36 @@ object TransferProtocol {
                   JSONObject().apply {
                     put("callLogId", log.callLogId)
                     put("phoneNumber", CryptoManager.decryptField(context, log.phoneNumber))
+                    put(
+                      "contactName",
+                      if (log.contactName.isNotEmpty()) CryptoManager.decryptField(context, log.contactName)
+                      else "",
+                    )
                     put("callType", log.callType)
                     put("callDate", log.callDate)
                     put("callTime", log.callTime)
                     put("durationSeconds", log.durationSeconds)
                     put("timestampMillis", log.timestampMillis)
+                    put("batteryPercent", log.batteryPercent ?: JSONObject.NULL)
+                  }
+                )
+              }
+            },
+          )
+          put(
+            "unlockLogs",
+            JSONArray().apply {
+              unlockLogs.forEach { u ->
+                put(
+                  JSONObject().apply {
+                    put("id", u.id)
+                    put("unlockMethod", u.unlockMethod)
+                    put("unlockCategory", u.unlockCategory)
+                    put("batteryPercent", u.batteryPercent ?: JSONObject.NULL)
+                    put("unlockDate", u.unlockDate)
+                    put("unlockTime", u.unlockTime)
+                    put("timestampMillis", u.timestampMillis)
+                    put("source", u.source)
                   }
                 )
               }
@@ -207,6 +236,7 @@ object TransferProtocol {
             timestampMillis = o.getLong("timestampMillis"),
             isImportedSnapshot = true,
             importedAtMillis = now,
+            batteryPercent = if (o.isNull("batteryPercent")) null else o.optInt("batteryPercent"),
           )
         }
 
@@ -242,6 +272,7 @@ object TransferProtocol {
           val o = callArr.getJSONObject(i)
           val rowId = o.getLong("callLogId")
           val ts = o.getLong("timestampMillis")
+          val plainName = o.optString("contactName", "")
           CallLogEntity(
             id = "$sourceDeviceId:$rowId:$ts",
             deviceId = sourceDeviceId,
@@ -254,7 +285,33 @@ object TransferProtocol {
             timestampMillis = ts,
             isImportedSnapshot = true,
             importedAtMillis = now,
+            contactName = if (plainName.isNotEmpty()) CryptoManager.encryptField(context, plainName) else "",
+            batteryPercent = if (o.isNull("batteryPercent")) null else o.optInt("batteryPercent"),
           )
+        }
+
+      val unlockArr = root.optJSONArray("unlockLogs")
+      val unlockLogs =
+        if (unlockArr == null) emptyList()
+        else {
+          (0 until unlockArr.length()).map { i ->
+            val o = unlockArr.getJSONObject(i)
+            val ts = o.getLong("timestampMillis")
+            val src = o.optString("source", "LIVE_RECEIVER")
+            DeviceUnlockEventEntity(
+              id = o.optString("id", "$sourceDeviceId:$ts:$src"),
+              deviceId = sourceDeviceId,
+              unlockMethod = o.getString("unlockMethod"),
+              unlockCategory = o.optString("unlockCategory", "PIN_PATTERN_PASSWORD"),
+              batteryPercent = if (o.isNull("batteryPercent")) null else o.optInt("batteryPercent"),
+              unlockDate = o.getString("unlockDate"),
+              unlockTime = o.getString("unlockTime"),
+              timestampMillis = ts,
+              source = src,
+              isImportedSnapshot = true,
+              importedAtMillis = now,
+            )
+          }
         }
 
       db.appActivityDao().deleteEventsForDevice(sourceDeviceId)
@@ -266,10 +323,14 @@ object TransferProtocol {
       db.callLogDao().deleteCallLogsForDevice(sourceDeviceId)
       if (callLogs.isNotEmpty()) db.callLogDao().upsertCallLogs(callLogs)
 
+      db.unlockEventDao().deleteUnlockEventsForDevice(sourceDeviceId)
+      if (unlockLogs.isNotEmpty()) db.unlockEventDao().upsertUnlockEvents(unlockLogs)
+
       val latestRecordTs =
         maxOf(
           events.maxOfOrNull { it.timestampMillis } ?: 0L,
           callLogs.maxOfOrNull { it.timestampMillis } ?: 0L,
+          unlockLogs.maxOfOrNull { it.timestampMillis } ?: 0L,
         ).takeIf { it > 0L }
 
       val existingDevice = db.pairedDeviceDao().getDeviceById(sourceDeviceId)
@@ -304,6 +365,7 @@ object TransferProtocol {
         inventoryCount = inventory.size,
         eventsCount = events.size,
         callLogsCount = callLogs.size,
+        unlockLogsCount = unlockLogs.size,
       )
     }
 

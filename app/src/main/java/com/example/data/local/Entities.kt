@@ -21,12 +21,13 @@ data class AppActivityEventEntity(
   val versionName: String,
   val eventType: String, // INSTALLED, UNINSTALLED, UPDATED
   val installerPackage: String?,
-  val installerLabel: String, // "Google Play Store", known installer, or "Unknown"
+  val installerLabel: String, // "Google Play Store", "System / Pre-installed", "Other Source (...)", or "Unknown"
   val eventDate: String, // yyyy-MM-dd
   val eventTime: String, // HH:mm:ss
   val timestampMillis: Long,
   val isImportedSnapshot: Boolean = false,
   val importedAtMillis: Long? = null,
+  val batteryPercent: Int? = null,
 )
 
 @Entity(
@@ -74,6 +75,30 @@ data class CallLogEntity(
   val callTime: String, // HH:mm:ss
   val durationSeconds: Long,
   val timestampMillis: Long,
+  val isImportedSnapshot: Boolean = false,
+  val importedAtMillis: Long? = null,
+  val contactName: String = "",
+  val batteryPercent: Int? = null,
+)
+
+@Entity(
+  tableName = "device_unlock_events",
+  indices = [
+    Index("deviceId"),
+    Index("timestampMillis"),
+    Index("unlockDate"),
+  ],
+)
+data class DeviceUnlockEventEntity(
+  @PrimaryKey val id: String, // "$deviceId:$timestampMillis:$source"
+  val deviceId: String,
+  val unlockMethod: String,
+  val unlockCategory: String, // BIOMETRIC_ENROLLED, PIN_PATTERN_PASSWORD, SWIPE_OR_NONE
+  val batteryPercent: Int? = null,
+  val unlockDate: String, // yyyy-MM-dd
+  val unlockTime: String, // HH:mm:ss
+  val timestampMillis: Long,
+  val source: String = "LIVE_RECEIVER", // LIVE_RECEIVER, USAGE_STATS
   val isImportedSnapshot: Boolean = false,
   val importedAtMillis: Long? = null,
 )

@@ -78,6 +78,10 @@
           "type": "integer",
           "description": "Number of synced call log metadata records."
         },
+        "unlockCount": {
+          "type": "integer",
+          "description": "Number of synced device unlock events."
+        },
         "summaryNote": {
           "type": "string",
           "description": "Optional sync note (up to 500 characters)."
@@ -113,7 +117,7 @@
     },
     "CloudActivityRecord": {
       "title": "CloudActivityRecord",
-      "description": "Individual cloud-synced app activity, inventory, or call metadata record.",
+      "description": "Individual cloud-synced app activity, inventory, call metadata, or unlock record.",
       "type": "object",
       "properties": {
         "userId": {
@@ -126,7 +130,7 @@
         },
         "recordCategory": {
           "type": "string",
-          "enum": ["APP_EVENT", "APP_INVENTORY", "CALL_LOG"],
+          "enum": ["APP_EVENT", "APP_INVENTORY", "CALL_LOG", "UNLOCK_LOG"],
           "description": "Category of the synced activity record."
         },
         "title": {

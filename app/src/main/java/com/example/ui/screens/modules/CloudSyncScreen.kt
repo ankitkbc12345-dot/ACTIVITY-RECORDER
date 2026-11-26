@@ -706,6 +706,7 @@ private fun CloudSyncAuthenticatedScreen(
                           CloudRecordCategory.APP_EVENT -> "App Event"
                           CloudRecordCategory.APP_INVENTORY -> "Inventory"
                           CloudRecordCategory.CALL_LOG -> "Call Metadata"
+                          CloudRecordCategory.UNLOCK_LOG -> "Unlock History"
                         }
                       })",
                       style = MaterialTheme.typography.titleSmall,

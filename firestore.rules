@@ -66,6 +66,7 @@ service cloud.firestore {
              data.appCount is int && data.appCount >= 0 &&
              data.activityCount is int && data.activityCount >= 0 &&
              data.callLogCount is int && data.callLogCount >= 0 &&
+             (!('unlockCount' in data) || (data.unlockCount is int && data.unlockCount >= 0)) &&
              (!('summaryNote' in data) || (data.summaryNote is string && data.summaryNote.size() <= 500)) &&
              data.syncStatus is string &&
              data.syncStatus in ['SYNCED', 'PAUSED'] &&
@@ -83,7 +84,7 @@ service cloud.firestore {
              data.deviceId.size() >= 1 && data.deviceId.size() <= 64 &&
              data.deviceId.matches('^[a-zA-Z0-9_\\-]+$') &&
              data.recordCategory is string &&
-             data.recordCategory in ['APP_EVENT', 'APP_INVENTORY', 'CALL_LOG'] &&
+             data.recordCategory in ['APP_EVENT', 'APP_INVENTORY', 'CALL_LOG', 'UNLOCK_LOG'] &&
              data.title is string &&
              data.title.size() >= 1 && data.title.size() <= 120 &&
              data.subtitle is string &&
@@ -125,7 +126,7 @@ service cloud.firestore {
                          isValidId(userId) &&
                          isValidId(snapshotId) &&
                          incoming().keys().hasAll(['userId', 'deviceId', 'deviceName', 'deviceModel', 'appCount', 'activityCount', 'callLogCount', 'syncStatus', 'createdAt', 'updatedAt']) &&
-                         incoming().keys().hasOnly(['userId', 'deviceId', 'deviceName', 'deviceModel', 'appCount', 'activityCount', 'callLogCount', 'summaryNote', 'syncStatus', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'deviceId', 'deviceName', 'deviceModel', 'appCount', 'activityCount', 'callLogCount', 'unlockCount', 'summaryNote', 'syncStatus', 'createdAt', 'updatedAt']) &&
                          isValidDeviceSnapshot(incoming(), userId);
 
         allow update: if isOwner(userId) &&
@@ -135,7 +136,7 @@ service cloud.firestore {
                          incoming().userId == existing().userId &&
                          incoming().deviceId == existing().deviceId &&
                          incoming().createdAt == existing().createdAt &&
-                         incoming().diff(existing()).affectedKeys().hasOnly(['deviceName', 'deviceModel', 'appCount', 'activityCount', 'callLogCount', 'summaryNote', 'syncStatus', 'updatedAt']);
+                         incoming().diff(existing()).affectedKeys().hasOnly(['deviceName', 'deviceModel', 'appCount', 'activityCount', 'callLogCount', 'unlockCount', 'summaryNote', 'syncStatus', 'updatedAt']);
 
         allow delete: if isOwner(userId) && isValidId(userId) && isValidId(snapshotId);
       }

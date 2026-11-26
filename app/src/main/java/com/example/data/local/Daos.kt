@@ -85,6 +85,33 @@ interface CallLogDao {
 }
 
 @Dao
+interface UnlockEventDao {
+  @Query("SELECT * FROM device_unlock_events WHERE deviceId = :deviceId ORDER BY timestampMillis DESC")
+  fun observeUnlockEventsForDevice(deviceId: String): Flow<List<DeviceUnlockEventEntity>>
+
+  @Query("SELECT * FROM device_unlock_events WHERE deviceId = :deviceId ORDER BY timestampMillis DESC")
+  suspend fun getUnlockEventsForDeviceOnce(deviceId: String): List<DeviceUnlockEventEntity>
+
+  @Query("SELECT * FROM device_unlock_events ORDER BY timestampMillis DESC")
+  suspend fun getAllUnlockEventsOnce(): List<DeviceUnlockEventEntity>
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun upsertUnlockEvent(event: DeviceUnlockEventEntity)
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun upsertUnlockEvents(events: List<DeviceUnlockEventEntity>)
+
+  @Query("DELETE FROM device_unlock_events WHERE deviceId = :deviceId AND timestampMillis < :olderThanMillis")
+  suspend fun deleteUnlockEventsOlderThan(deviceId: String, olderThanMillis: Long): Int
+
+  @Query("DELETE FROM device_unlock_events WHERE deviceId = :deviceId")
+  suspend fun deleteUnlockEventsForDevice(deviceId: String): Int
+
+  @Query("SELECT COUNT(*) FROM device_unlock_events")
+  suspend fun getTotalUnlockEventCount(): Int
+}
+
+@Dao
 interface PairedDeviceDao {
   @Query("SELECT * FROM paired_devices ORDER BY createdAtMillis DESC")
   fun observePairedDevices(): Flow<List<PairedDeviceEntity>>

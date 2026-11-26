@@ -34,14 +34,19 @@ jobs:
           echo "version_code=$NEXT_CODE" >> "$GITHUB_OUTPUT"
           echo "version_name=$NEXT_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Create debug keystore
+      - name: Restore or create debug keystore
         run: |
-          keytool -genkeypair -v \
-            -keystore debug.keystore \
-            -alias androiddebugkey \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass android -keypass android \
-            -dname "CN=Android Debug,O=Android,C=US"
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+            echo "Restored debug.keystore matching Firebase SHA-1."
+          else
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass android -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
 
       - name: Prepare build secrets
         env:

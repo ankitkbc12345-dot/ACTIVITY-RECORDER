@@ -52,8 +52,12 @@ tailrec fun Context.findActivity(): Activity? =
   }
 
 private fun Context.googleWebClientId(): String? {
-  val id = resources.getIdentifier("default_web_client_id", "string", packageName)
-  return if (id != 0) getString(id) else null
+  return try {
+    getString(com.example.R.string.default_web_client_id).takeIf { it.isNotBlank() }
+  } catch (_: Exception) {
+    val id = resources.getIdentifier("default_web_client_id", "string", packageName)
+    if (id != 0) getString(id) else null
+  }
 }
 
 fun attemptAutoSignIn(

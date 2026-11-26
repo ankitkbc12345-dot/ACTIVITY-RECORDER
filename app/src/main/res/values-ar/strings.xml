@@ -63,4 +63,16 @@
     <string name="module_security">إعدادات الأمان</string>
     <string name="module_internet_config">إعدادات الاتصال بالإنترنت</string>
     <string name="module_cloud_sync">المزامنة السحابية Firebase</string>
+    <string name="module_theme">وضع المظهر</string>
+    <string name="module_unlock_logs">سجل فتح الجهاز</string>
+    <string name="theme_title">وضع المظهر</string>
+    <string name="theme_section_title">المظهر ووضع السمة</string>
+    <string name="theme_section_subtitle">اختر الوضع الافتراضي أو الساطع أو الداكن</string>
+    <string name="theme_system">الوضع الافتراضي (النظام)</string>
+    <string name="theme_light">الوضع الساطع (فاتح)</string>
+    <string name="theme_dark">الوضع الداكن</string>
+    <string name="unlock_logs_title">سجل فتح الجهاز</string>
+    <string name="battery_status_label">حالة البطارية</string>
+    <string name="sync_status_label">حالة المزامنة</string>
+    <string name="export_report_action">تصدير PDF</string>
 </resources>

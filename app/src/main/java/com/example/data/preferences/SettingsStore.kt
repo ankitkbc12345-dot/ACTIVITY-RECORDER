@@ -24,6 +24,31 @@ data class RecordingSettings(
   val masterEnabled: Boolean = true,
   val appTrackingEnabled: Boolean = true,
   val callLogEnabled: Boolean = true,
+  val unlockTrackingEnabled: Boolean = true,
+)
+
+enum class CloudSyncSchedule {
+  MANUAL,
+  ALWAYS,
+  EVERY_1_MIN,
+  EVERY_1_HOUR,
+  DAILY;
+
+  companion object {
+    fun fromRaw(raw: String?): CloudSyncSchedule =
+      entries.firstOrNull { it.name == raw } ?: ALWAYS
+  }
+}
+
+data class CloudSyncPreferences(
+  val schedule: CloudSyncSchedule = CloudSyncSchedule.ALWAYS,
+  val dailyHour: Int = 22,
+  val dailyMinute: Int = 0,
+  val syncCallLogs: Boolean = true,
+  val syncAppActivity: Boolean = true,
+  val syncUnlockLogs: Boolean = true,
+  val lastCloudSyncMillis: Long? = null,
+  val lastCloudSyncStatus: String = "Ready",
 )
 
 data class SecuritySettingsState(
@@ -74,6 +99,16 @@ class SettingsStore(private val context: Context) {
     val MASTER_RECORDING = booleanPreferencesKey("master_recording")
     val APP_TRACKING = booleanPreferencesKey("app_tracking")
     val CALL_LOG_RECORDING = booleanPreferencesKey("call_log_recording")
+    val UNLOCK_TRACKING = booleanPreferencesKey("unlock_tracking")
+
+    val CLOUD_SYNC_SCHEDULE = stringPreferencesKey("cloud_sync_schedule")
+    val CLOUD_SYNC_DAILY_HOUR = intPreferencesKey("cloud_sync_daily_hour")
+    val CLOUD_SYNC_DAILY_MINUTE = intPreferencesKey("cloud_sync_daily_minute")
+    val CLOUD_SYNC_CALLS = booleanPreferencesKey("cloud_sync_calls")
+    val CLOUD_SYNC_APPS = booleanPreferencesKey("cloud_sync_apps")
+    val CLOUD_SYNC_UNLOCKS = booleanPreferencesKey("cloud_sync_unlocks")
+    val CLOUD_LAST_SYNC_MILLIS = longPreferencesKey("cloud_last_sync_millis")
+    val CLOUD_LAST_SYNC_STATUS = stringPreferencesKey("cloud_last_sync_status")
 
     val LANGUAGE_CODE = stringPreferencesKey("language_code")
     val THEME_MODE = stringPreferencesKey("theme_mode")
@@ -94,6 +129,21 @@ class SettingsStore(private val context: Context) {
         masterEnabled = prefs[Keys.MASTER_RECORDING] ?: true,
         appTrackingEnabled = prefs[Keys.APP_TRACKING] ?: true,
         callLogEnabled = prefs[Keys.CALL_LOG_RECORDING] ?: true,
+        unlockTrackingEnabled = prefs[Keys.UNLOCK_TRACKING] ?: true,
+      )
+    }
+
+  val cloudSyncPreferencesFlow: Flow<CloudSyncPreferences> =
+    context.dataStore.data.map { prefs ->
+      CloudSyncPreferences(
+        schedule = CloudSyncSchedule.fromRaw(prefs[Keys.CLOUD_SYNC_SCHEDULE]),
+        dailyHour = (prefs[Keys.CLOUD_SYNC_DAILY_HOUR] ?: 22).coerceIn(0, 23),
+        dailyMinute = (prefs[Keys.CLOUD_SYNC_DAILY_MINUTE] ?: 0).coerceIn(0, 59),
+        syncCallLogs = prefs[Keys.CLOUD_SYNC_CALLS] ?: true,
+        syncAppActivity = prefs[Keys.CLOUD_SYNC_APPS] ?: true,
+        syncUnlockLogs = prefs[Keys.CLOUD_SYNC_UNLOCKS] ?: true,
+        lastCloudSyncMillis = prefs[Keys.CLOUD_LAST_SYNC_MILLIS],
+        lastCloudSyncStatus = prefs[Keys.CLOUD_LAST_SYNC_STATUS] ?: "Ready",
       )
     }
 
@@ -159,7 +209,6 @@ class SettingsStore(private val context: Context) {
         prefs[Keys.LOCAL_DEVICE_NAME] = CryptoManager.getLocalDeviceModel().ifBlank { "This Device" }
       }
 
-      // Always keep Admin ID synchronized to the fixed owner-supplied build-time ID
       prefs[Keys.ADMIN_ID] = buildAdminId
 
       val existingHash = prefs[Keys.ADMIN_PASSWORD_HASH]
@@ -298,6 +347,40 @@ class SettingsStore(private val context: Context) {
     context.dataStore.edit { prefs -> prefs[Keys.CALL_LOG_RECORDING] = enabled }
   }
 
+  suspend fun setUnlockTrackingEnabled(enabled: Boolean) {
+    context.dataStore.edit { prefs -> prefs[Keys.UNLOCK_TRACKING] = enabled }
+  }
+
+  suspend fun setCloudSyncSchedule(schedule: CloudSyncSchedule) {
+    context.dataStore.edit { prefs -> prefs[Keys.CLOUD_SYNC_SCHEDULE] = schedule.name }
+  }
+
+  suspend fun setCloudSyncDailyTime(hour: Int, minute: Int) {
+    context.dataStore.edit { prefs ->
+      prefs[Keys.CLOUD_SYNC_DAILY_HOUR] = hour.coerceIn(0, 23)
+      prefs[Keys.CLOUD_SYNC_DAILY_MINUTE] = minute.coerceIn(0, 59)
+    }
+  }
+
+  suspend fun setCloudSyncDataToggles(
+    syncCallLogs: Boolean,
+    syncAppActivity: Boolean,
+    syncUnlockLogs: Boolean,
+  ) {
+    context.dataStore.edit { prefs ->
+      prefs[Keys.CLOUD_SYNC_CALLS] = syncCallLogs
+      prefs[Keys.CLOUD_SYNC_APPS] = syncAppActivity
+      prefs[Keys.CLOUD_SYNC_UNLOCKS] = syncUnlockLogs
+    }
+  }
+
+  suspend fun updateLastCloudSync(timestampMillis: Long, statusMessage: String) {
+    context.dataStore.edit { prefs ->
+      prefs[Keys.CLOUD_LAST_SYNC_MILLIS] = timestampMillis
+      prefs[Keys.CLOUD_LAST_SYNC_STATUS] = statusMessage.take(240)
+    }
+  }
+
   suspend fun setLanguageCode(code: String) {
     context.dataStore.edit { prefs -> prefs[Keys.LANGUAGE_CODE] = code }
   }
@@ -339,6 +422,8 @@ class SettingsStore(private val context: Context) {
   }
 
   suspend fun getRecordingSettingsOnce(): RecordingSettings = recordingSettingsFlow.first()
+
+  suspend fun getCloudSyncPreferencesOnce(): CloudSyncPreferences = cloudSyncPreferencesFlow.first()
 
   suspend fun getInternetConfigOnce(): InternetConnectivityConfig = internetConfigFlow.first()
 }

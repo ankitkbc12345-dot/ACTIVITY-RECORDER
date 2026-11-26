@@ -5,6 +5,7 @@ import com.example.data.local.AppActivityEventEntity
 import com.example.data.local.AppDatabase
 import com.example.data.local.AppInventorySnapshotEntity
 import com.example.data.local.CallLogEntity
+import com.example.data.local.DeviceUnlockEventEntity
 import com.example.data.local.PairedDeviceEntity
 import com.example.security.CryptoManager
 import java.io.InputStream
@@ -19,6 +20,7 @@ data class BackupRestoreSummary(
   val inventoryCount: Int,
   val callLogsCount: Int,
   val pairedDevicesCount: Int,
+  val unlockLogsCount: Int = 0,
 )
 
 object EncryptedBackupManager {
@@ -36,6 +38,7 @@ object EncryptedBackupManager {
       val inventory = db.appInventoryDao().getAllInventoryOnce()
       val callLogs = db.callLogDao().getAllCallLogsOnce()
       val pairedDevices = db.pairedDeviceDao().getPairedDevicesOnce()
+      val unlockLogs = db.unlockEventDao().getAllUnlockEventsOnce()
 
       val root =
         JSONObject().apply {
@@ -60,6 +63,7 @@ object EncryptedBackupManager {
                     put("timestampMillis", ev.timestampMillis)
                     put("isImportedSnapshot", ev.isImportedSnapshot)
                     put("importedAtMillis", ev.importedAtMillis ?: JSONObject.NULL)
+                    put("batteryPercent", ev.batteryPercent ?: JSONObject.NULL)
                   }
                 )
               }
@@ -101,6 +105,11 @@ object EncryptedBackupManager {
                     put("deviceId", log.deviceId)
                     put("callLogId", log.callLogId)
                     put("phoneNumber", CryptoManager.decryptField(context, log.phoneNumber))
+                    put(
+                      "contactName",
+                      if (log.contactName.isNotEmpty()) CryptoManager.decryptField(context, log.contactName)
+                      else "",
+                    )
                     put("callType", log.callType)
                     put("callDate", log.callDate)
                     put("callTime", log.callTime)
@@ -108,6 +117,29 @@ object EncryptedBackupManager {
                     put("timestampMillis", log.timestampMillis)
                     put("isImportedSnapshot", log.isImportedSnapshot)
                     put("importedAtMillis", log.importedAtMillis ?: JSONObject.NULL)
+                    put("batteryPercent", log.batteryPercent ?: JSONObject.NULL)
+                  }
+                )
+              }
+            },
+          )
+          put(
+            "unlockLogs",
+            JSONArray().apply {
+              unlockLogs.forEach { u ->
+                put(
+                  JSONObject().apply {
+                    put("id", u.id)
+                    put("deviceId", u.deviceId)
+                    put("unlockMethod", u.unlockMethod)
+                    put("unlockCategory", u.unlockCategory)
+                    put("batteryPercent", u.batteryPercent ?: JSONObject.NULL)
+                    put("unlockDate", u.unlockDate)
+                    put("unlockTime", u.unlockTime)
+                    put("timestampMillis", u.timestampMillis)
+                    put("source", u.source)
+                    put("isImportedSnapshot", u.isImportedSnapshot)
+                    put("importedAtMillis", u.importedAtMillis ?: JSONObject.NULL)
                   }
                 )
               }
@@ -163,6 +195,7 @@ object EncryptedBackupManager {
         inventoryCount = inventory.size,
         callLogsCount = callLogs.size,
         pairedDevicesCount = pairedDevices.size,
+        unlockLogsCount = unlockLogs.size,
       )
     }
 
@@ -201,6 +234,7 @@ object EncryptedBackupManager {
             timestampMillis = o.getLong("timestampMillis"),
             isImportedSnapshot = o.optBoolean("isImportedSnapshot", false),
             importedAtMillis = if (o.isNull("importedAtMillis")) null else o.getLong("importedAtMillis"),
+            batteryPercent = if (o.isNull("batteryPercent")) null else o.optInt("batteryPercent"),
           )
         }
 
@@ -233,6 +267,7 @@ object EncryptedBackupManager {
       val callLogs =
         (0 until callArr.length()).map { i ->
           val o = callArr.getJSONObject(i)
+          val plainName = o.optString("contactName", "")
           CallLogEntity(
             id = o.getString("id"),
             deviceId = o.getString("deviceId"),
@@ -245,7 +280,31 @@ object EncryptedBackupManager {
             timestampMillis = o.getLong("timestampMillis"),
             isImportedSnapshot = o.optBoolean("isImportedSnapshot", false),
             importedAtMillis = if (o.isNull("importedAtMillis")) null else o.getLong("importedAtMillis"),
+            contactName = if (plainName.isNotEmpty()) CryptoManager.encryptField(context, plainName) else "",
+            batteryPercent = if (o.isNull("batteryPercent")) null else o.optInt("batteryPercent"),
           )
+        }
+
+      val unlockArr = root.optJSONArray("unlockLogs")
+      val unlockLogs =
+        if (unlockArr == null) emptyList()
+        else {
+          (0 until unlockArr.length()).map { i ->
+            val o = unlockArr.getJSONObject(i)
+            DeviceUnlockEventEntity(
+              id = o.getString("id"),
+              deviceId = o.getString("deviceId"),
+              unlockMethod = o.getString("unlockMethod"),
+              unlockCategory = o.optString("unlockCategory", "PIN_PATTERN_PASSWORD"),
+              batteryPercent = if (o.isNull("batteryPercent")) null else o.optInt("batteryPercent"),
+              unlockDate = o.getString("unlockDate"),
+              unlockTime = o.getString("unlockTime"),
+              timestampMillis = o.getLong("timestampMillis"),
+              source = o.optString("source", "LIVE_RECEIVER"),
+              isImportedSnapshot = o.optBoolean("isImportedSnapshot", false),
+              importedAtMillis = if (o.isNull("importedAtMillis")) null else o.getLong("importedAtMillis"),
+            )
+          }
         }
 
       val devArr = root.getJSONArray("pairedDevices")
@@ -274,6 +333,7 @@ object EncryptedBackupManager {
       if (events.isNotEmpty()) db.appActivityDao().insertEvents(events)
       if (inventory.isNotEmpty()) db.appInventoryDao().upsertInventory(inventory)
       if (callLogs.isNotEmpty()) db.callLogDao().upsertCallLogs(callLogs)
+      if (unlockLogs.isNotEmpty()) db.unlockEventDao().upsertUnlockEvents(unlockLogs)
       if (pairedDevices.isNotEmpty()) db.pairedDeviceDao().upsertDevices(pairedDevices)
 
       BackupRestoreSummary(
@@ -281,6 +341,7 @@ object EncryptedBackupManager {
         inventoryCount = inventory.size,
         callLogsCount = callLogs.size,
         pairedDevicesCount = pairedDevices.size,
+        unlockLogsCount = unlockLogs.size,
       )
     }
 }

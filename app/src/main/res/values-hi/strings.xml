@@ -63,9 +63,16 @@
     <string name="module_security">सुरक्षा सेटिंग्स</string>
     <string name="module_internet_config">इंटरनेट कनेक्टिविटी कॉन्फ़िग</string>
     <string name="module_cloud_sync">फ़ायरबेस क्लाउड सिंक</string>
+    <string name="module_theme">थीम मोड</string>
+    <string name="module_unlock_logs">डिवाइस अनलॉक हिस्ट्री</string>
+    <string name="theme_title">थीम मोड</string>
     <string name="theme_section_title">प्रकटन और थीम मोड</string>
-    <string name="theme_section_subtitle">ब्राइट मोड, डार्क मोड या सिस्टम डिफ़ॉल्ट चुनें</string>
-    <string name="theme_system">सिस्टम डिफ़ॉल्ट</string>
+    <string name="theme_section_subtitle">डिफ़ॉल्ट मोड, ब्राइट मोड या डार्क मोड चुनें</string>
+    <string name="theme_system">डिफ़ॉल्ट मोड (सिस्टम)</string>
     <string name="theme_light">ब्राइट मोड (लाइट)</string>
     <string name="theme_dark">डार्क मोड</string>
+    <string name="unlock_logs_title">डिवाइस अनलॉक हिस्ट्री</string>
+    <string name="battery_status_label">बैटरी स्टेटस</string>
+    <string name="sync_status_label">सिंक स्टेटस</string>
+    <string name="export_report_action">PDF एक्सपोर्ट</string>
 </resources>

@@ -69,6 +69,8 @@
     <string name="module_backup_restore">Backup &amp; Restore</string>
     <string name="module_data_management">Data Management</string>
     <string name="module_language">Language Settings</string>
+    <string name="module_theme">Theme Mode</string>
+    <string name="module_unlock_logs">Device Unlock History</string>
     <string name="module_security">Security Settings</string>
     <string name="module_internet_config">Internet Connectivity Config</string>
     <string name="module_cloud_sync">Firebase Cloud Sync</string>
@@ -79,9 +81,16 @@
     <string name="language_applied">Language updated</string>
 
     <!-- Theme / Appearance Settings -->
+    <string name="theme_title">Theme Mode</string>
     <string name="theme_section_title">Appearance &amp; Theme Mode</string>
-    <string name="theme_section_subtitle">Select Bright Mode, Dark Mode, or System Default</string>
-    <string name="theme_system">System Default</string>
+    <string name="theme_section_subtitle">Select Default Mode, Bright Mode, or Dark Mode</string>
+    <string name="theme_system">Default Mode (System)</string>
     <string name="theme_light">Bright Mode (Light)</string>
     <string name="theme_dark">Dark Mode</string>
+
+    <!-- Unlock Logs & Status Badges -->
+    <string name="unlock_logs_title">Device Unlock History</string>
+    <string name="battery_status_label">Battery Status</string>
+    <string name="sync_status_label">Sync Status</string>
+    <string name="export_report_action">Export PDF</string>
 </resources>

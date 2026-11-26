@@ -28,16 +28,18 @@ class PackageEventReceiver : BroadcastReceiver() {
     val pendingResult: PendingResult? = runCatching { goAsync() }.getOrNull()
     CoroutineScope(Dispatchers.IO).launch {
       try {
-        val settingsStore = SettingsStore(context.applicationContext)
+        val appCtx = context.applicationContext
+        val settingsStore = SettingsStore(appCtx)
         val recording = settingsStore.getRecordingSettingsOnce()
         if (!recording.masterEnabled || !recording.appTrackingEnabled) {
           return@launch
         }
 
-        val db = AppDatabase.getInstance(context.applicationContext)
+        val db = AppDatabase.getInstance(appCtx)
         val localDeviceId = settingsStore.getLocalDeviceId()
         val now = System.currentTimeMillis()
-        val pm = context.packageManager
+        val pm = appCtx.packageManager
+        val batteryPercent = BatteryUtils.getBatteryStatus(appCtx).percent
 
         when (action) {
           Intent.ACTION_PACKAGE_ADDED,
@@ -70,8 +72,8 @@ class PackageEventReceiver : BroadcastReceiver() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) pkgInfo.longVersionCode
                 else @Suppress("DEPRECATION") pkgInfo.versionCode.toLong()
               } else 0L
-            val installerPkg = PackageInventoryScanner.getInstallerPackage(pm, packageName)
-            val installerLabel = PackageInventoryScanner.resolveInstallerLabel(installerPkg)
+            val (installerPkg, installerLabel) =
+              PackageInventoryScanner.getInstallerDetails(pm, packageName, pkgInfo?.applicationInfo)
             val firstInstall = pkgInfo?.firstInstallTime?.takeIf { it > 0L }
             val lastUpdate = pkgInfo?.lastUpdateTime?.takeIf { it > 0L }
 
@@ -89,6 +91,7 @@ class PackageEventReceiver : BroadcastReceiver() {
                   eventTime = DateTimeUtils.formatTime(now),
                   timestampMillis = now,
                   isImportedSnapshot = false,
+                  batteryPercent = batteryPercent,
                 )
               )
 
@@ -135,6 +138,7 @@ class PackageEventReceiver : BroadcastReceiver() {
                   eventTime = DateTimeUtils.formatTime(now),
                   timestampMillis = now,
                   isImportedSnapshot = false,
+                  batteryPercent = batteryPercent,
                 )
               )
 

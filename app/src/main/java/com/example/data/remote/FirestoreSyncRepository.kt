@@ -26,12 +26,17 @@ data class CloudSyncUploadSummary(
   val uploadedRecordsCount: Int,
 )
 
-class FirestoreSyncRepository(private val db: FirebaseFirestore) {
+class FirestoreSyncRepository(
+  private val db: FirebaseFirestore,
+  private val appContext: Context? = null,
+) {
 
   constructor(context: Context) : this(
-    FirebaseFirestore.getInstance(
-      context.applicationContext.getString(R.string.firestore_database_id)
-    )
+    db =
+      FirebaseFirestore.getInstance(
+        context.applicationContext.getString(R.string.firestore_database_id)
+      ),
+    appContext = context.applicationContext,
   )
 
   private val auth = Firebase.auth
@@ -143,6 +148,9 @@ class FirestoreSyncRepository(private val db: FirebaseFirestore) {
     localDeviceId: String,
     localDeviceName: String,
     summaryNote: String?,
+    syncCallLogs: Boolean = true,
+    syncAppActivity: Boolean = true,
+    syncUnlockLogs: Boolean = true,
   ): Result<CloudSyncUploadSummary> {
     var currentPath = "users/${auth.currentUser?.uid ?: "unauthenticated"}"
     return try {
@@ -156,6 +164,7 @@ class FirestoreSyncRepository(private val db: FirebaseFirestore) {
       val inventory = localDb.appInventoryDao().getInventoryForDeviceOnce(localDeviceId)
       val events = localDb.appActivityDao().getEventsForDeviceOnce(localDeviceId)
       val calls = localDb.callLogDao().getCallLogsForDeviceOnce(localDeviceId)
+      val unlocks = localDb.unlockEventDao().getUnlockEventsForDeviceOnce(localDeviceId)
 
       // 1. Upsert CloudDeviceSnapshot document for this device
       val snapshotDocRef =
@@ -168,9 +177,10 @@ class FirestoreSyncRepository(private val db: FirebaseFirestore) {
           deviceId = safeDeviceId,
           deviceName = safeDeviceName,
           deviceModel = safeModel,
-          appCount = inventory.count { it.isInstalled }.toLong(),
-          activityCount = events.size.toLong(),
-          callLogCount = calls.size.toLong(),
+          appCount = if (syncAppActivity) inventory.count { it.isInstalled }.toLong() else 0L,
+          activityCount = if (syncAppActivity) events.size.toLong() else 0L,
+          callLogCount = if (syncCallLogs) calls.size.toLong() else 0L,
+          unlockCount = if (syncUnlockLogs) unlocks.size.toLong() else 0L,
           summaryNote = safeNote,
           syncStatus = CloudSyncStatus.SYNCED.name,
         )
@@ -180,53 +190,93 @@ class FirestoreSyncRepository(private val db: FirebaseFirestore) {
         snapshotDocRef.set(snapshotModel.toCreateMap()).await()
       }
 
-      // 2. Upload up to 20 recent activity & call metadata records (with masked phone privacy)
+      // 2. Upload selected activity, call log, and unlock metadata records
       val recordsToSync = buildList<Pair<String, CloudActivityRecord>> {
-        events.take(15).forEach { ev ->
-          val recId = sanitizeFirestoreId("EV_${safeDeviceId}_${ev.id}")
-          add(
-            recId to
-              CloudActivityRecord(
-                userId = uid,
-                deviceId = safeDeviceId,
-                recordCategory = CloudRecordCategory.APP_EVENT.name,
-                title = ev.appName.trim().take(120).ifEmpty { ev.packageName.take(120) },
-                subtitle = ev.packageName.trim().take(160).ifEmpty { "com.unknown" },
-                detail = "${ev.eventType} • ${ev.installerLabel}".take(240),
-                eventDate = ev.eventDate.take(20),
-                eventTime = ev.eventTime.take(20),
-                recordedAtMillis = ev.timestampMillis.coerceAtLeast(0L),
-              )
-          )
+        if (syncAppActivity) {
+          events.take(15).forEach { ev ->
+            val recId = sanitizeFirestoreId("EV_${safeDeviceId}_${ev.id}")
+            val batTag = ev.batteryPercent?.let { " • Bat: $it%" } ?: ""
+            add(
+              recId to
+                CloudActivityRecord(
+                  userId = uid,
+                  deviceId = safeDeviceId,
+                  recordCategory = CloudRecordCategory.APP_EVENT.name,
+                  title = ev.appName.trim().take(120).ifEmpty { ev.packageName.take(120) },
+                  subtitle = ev.packageName.trim().take(160).ifEmpty { "com.unknown" },
+                  detail = "${ev.eventType} • ${ev.installerLabel}$batTag".take(240),
+                  eventDate = ev.eventDate.take(20),
+                  eventTime = ev.eventTime.take(20),
+                  recordedAtMillis = ev.timestampMillis.coerceAtLeast(0L),
+                )
+            )
+          }
         }
-        calls.take(10).forEach { call ->
-          val recId = sanitizeFirestoreId("CL_${safeDeviceId}_${call.callLogId}_${call.timestampMillis}")
-          add(
-            recId to
-              CloudActivityRecord(
-                userId = uid,
-                deviceId = safeDeviceId,
-                recordCategory = CloudRecordCategory.CALL_LOG.name,
-                title = "${call.callType} Call",
-                subtitle = "Duration: ${call.durationSeconds}s",
-                detail = "Encrypted call log metadata synced",
-                eventDate = call.callDate.take(20),
-                eventTime = call.callTime.take(20),
-                recordedAtMillis = call.timestampMillis.coerceAtLeast(0L),
-              )
-          )
+        if (syncCallLogs) {
+          calls.take(15).forEach { call ->
+            val recId = sanitizeFirestoreId("CL_${safeDeviceId}_${call.callLogId}_${call.timestampMillis}")
+            val decodedName =
+              if (appContext != null && call.contactName.isNotEmpty()) {
+                CryptoManager.decryptField(appContext, call.contactName)
+                  .takeIf { it.isNotBlank() && it != "Unavailable" }
+              } else null
+            val batTag = call.batteryPercent?.let { " • Bat: $it%" } ?: ""
+            val title =
+              if (decodedName != null) "${decodedName.take(80)} (${call.callType})"
+              else "${call.callType} Call"
+            add(
+              recId to
+                CloudActivityRecord(
+                  userId = uid,
+                  deviceId = safeDeviceId,
+                  recordCategory = CloudRecordCategory.CALL_LOG.name,
+                  title = title.take(120),
+                  subtitle = "Duration: ${call.durationSeconds}s$batTag".take(160),
+                  detail = "Encrypted call metadata synced",
+                  eventDate = call.callDate.take(20),
+                  eventTime = call.callTime.take(20),
+                  recordedAtMillis = call.timestampMillis.coerceAtLeast(0L),
+                )
+            )
+          }
+        }
+        if (syncUnlockLogs) {
+          unlocks.take(15).forEach { unlock ->
+            val recId = sanitizeFirestoreId("UL_${safeDeviceId}_${unlock.timestampMillis}")
+            val batTag = unlock.batteryPercent?.let { " • Bat: $it%" } ?: ""
+            add(
+              recId to
+                CloudActivityRecord(
+                  userId = uid,
+                  deviceId = safeDeviceId,
+                  recordCategory = CloudRecordCategory.UNLOCK_LOG.name,
+                  title = unlock.unlockMethod.take(120),
+                  subtitle = "${unlock.unlockCategory}$batTag".take(160),
+                  detail = "Source: ${unlock.source}".take(240),
+                  eventDate = unlock.unlockDate.take(20),
+                  eventTime = unlock.unlockTime.take(20),
+                  recordedAtMillis = unlock.timestampMillis.coerceAtLeast(0L),
+                )
+            )
+          }
         }
       }
 
       val recordsCollection = db.collection("users").document(uid).collection("activity_records")
       val existingRecordIds =
-        recordsCollection.limit(100).get().await().documents.mapTo(HashSet()) { it.id }
+        recordsCollection
+          .whereEqualTo("deviceId", safeDeviceId)
+          .get()
+          .await()
+          .documents
+          .mapTo(HashSet()) { it.id }
 
       var uploadedRecords = 0
       recordsToSync.forEach { (recId, record) ->
         val docRef = recordsCollection.document(recId)
         currentPath = docRef.path
-        if (recId in existingRecordIds) {
+        val existsInRemote = recId in existingRecordIds || docRef.get().await().exists()
+        if (existsInRemote) {
           docRef.update(record.toUpdateMap()).await()
         } else {
           docRef.set(record.toCreateMap()).await()

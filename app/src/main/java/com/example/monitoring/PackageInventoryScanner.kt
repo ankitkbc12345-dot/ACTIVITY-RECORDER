@@ -1,7 +1,9 @@
 package com.example.monitoring
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
+import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.os.Build
@@ -15,33 +17,97 @@ import kotlinx.coroutines.withContext
 
 object PackageInventoryScanner {
 
-  fun resolveInstallerLabel(installerPackage: String?): String {
-    if (installerPackage.isNullOrBlank()) return "Unknown"
-    return when (installerPackage) {
-      "com.android.vending" -> "Google Play Store"
-      "com.google.android.packageinstaller",
-      "com.android.packageinstaller" -> "Android Package Installer"
-      "com.sec.android.app.samsungapps" -> "Samsung Galaxy Store"
-      "com.amazon.venezia" -> "Amazon Appstore"
-      "com.xiaomi.market" -> "Xiaomi GetApps"
-      "com.huawei.appmarket" -> "Huawei AppGallery"
-      "com.android.shell" -> "ADB / USB Installer"
-      else -> "Known Installer ($installerPackage)"
+  private val knownStorePackages =
+    mapOf(
+      "com.android.vending" to "Google Play Store",
+      "com.sec.android.app.samsungapps" to "Samsung Galaxy Store",
+      "com.amazon.venezia" to "Amazon Appstore",
+      "com.xiaomi.market" to "Xiaomi GetApps",
+      "com.xiaomi.mipicks" to "Xiaomi GetApps",
+      "com.huawei.appmarket" to "Huawei AppGallery",
+      "com.oppo.market" to "OPPO App Market",
+      "com.heytap.market" to "App Market",
+      "com.vivo.appstore" to "Vivo V-Appstore",
+      "org.fdroid.fdroid" to "F-Droid Store",
+    )
+
+  fun resolveInstallerLabel(
+    installerPackage: String?,
+    isSystemApp: Boolean = false,
+    packageSourceCode: Int? = null,
+  ): String {
+    if (!installerPackage.isNullOrBlank()) {
+      knownStorePackages[installerPackage]?.let { return it }
+      return when (installerPackage) {
+        "com.google.android.packageinstaller",
+        "com.android.packageinstaller" -> "Other Source (Package Installer)"
+        "com.android.shell" -> "Other Source (ADB / USB Installer)"
+        "com.android.chrome",
+        "org.mozilla.firefox",
+        "com.brave.browser",
+        "com.opera.browser",
+        "com.microsoft.emmx" -> "Other Source (Browser APK)"
+        "com.whatsapp",
+        "org.telegram.messenger",
+        "com.google.android.apps.nbu.files" -> "Other Source (Shared APK)"
+        else -> "Other Source ($installerPackage)"
+      }
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && packageSourceCode != null) {
+      when (packageSourceCode) {
+        PackageInstaller.PACKAGE_SOURCE_STORE -> return "App Store"
+        PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE -> return "Other Source (Local APK File)"
+        PackageInstaller.PACKAGE_SOURCE_DOWNLOADED_FILE -> return "Other Source (Downloaded APK)"
+      }
+    }
+    return if (isSystemApp) "System / Pre-installed" else "Unknown"
+  }
+
+  @Suppress("DEPRECATION")
+  fun getInstallerDetails(
+    pm: PackageManager,
+    packageName: String,
+    appInfo: ApplicationInfo? = null,
+  ): Pair<String?, String> {
+    val isSystemOnly =
+      appInfo != null &&
+        (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0 &&
+        (appInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0
+
+    return try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val info = pm.getInstallSourceInfo(packageName)
+        val candidates =
+          listOfNotNull(
+            info.installingPackageName?.takeIf { it.isNotBlank() },
+            info.initiatingPackageName?.takeIf { it.isNotBlank() },
+            info.originatingPackageName?.takeIf { it.isNotBlank() },
+          )
+        val prioritized =
+          candidates.firstOrNull { it in knownStorePackages }
+            ?: info.originatingPackageName?.takeIf { it.isNotBlank() }
+            ?: info.installingPackageName?.takeIf { it.isNotBlank() }
+            ?: info.initiatingPackageName?.takeIf { it.isNotBlank() }
+
+        val sourceCode =
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            info.packageSource
+          } else {
+            null
+          }
+        prioritized to resolveInstallerLabel(prioritized, isSystemOnly, sourceCode)
+      } else {
+        val pkg = pm.getInstallerPackageName(packageName)?.takeIf { it.isNotBlank() }
+        pkg to resolveInstallerLabel(pkg, isSystemOnly, null)
+      }
+    } catch (_: Exception) {
+      null to resolveInstallerLabel(null, isSystemOnly, null)
     }
   }
 
   @Suppress("DEPRECATION")
-  fun getInstallerPackage(pm: PackageManager, packageName: String): String? {
-    return try {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        pm.getInstallSourceInfo(packageName).installingPackageName
-      } else {
-        pm.getInstallerPackageName(packageName)
-      }
-    } catch (_: Exception) {
-      null
-    }
-  }
+  fun getInstallerPackage(pm: PackageManager, packageName: String): String? =
+    getInstallerDetails(pm, packageName, null).first
 
   @Suppress("DEPRECATION")
   fun getInstalledPackagesCompat(pm: PackageManager): List<PackageInfo> {
@@ -78,6 +144,7 @@ object PackageInventoryScanner {
       val pm = context.packageManager
       val installedPackages = getInstalledPackagesCompat(pm)
       val existing = inventoryDao.getInventoryForDeviceOnce(localDeviceId).associateBy { it.packageName }
+      val currentBattery = BatteryUtils.getBatteryStatus(context).percent
 
       val scannedItems =
         installedPackages.mapNotNull { pkgInfo ->
@@ -99,8 +166,7 @@ object PackageInventoryScanner {
             }
           val firstInstall = pkgInfo.firstInstallTime.takeIf { it > 0L }
           val lastUpdate = pkgInfo.lastUpdateTime.takeIf { it > 0L }
-          val installerPkg = getInstallerPackage(pm, pkgName)
-          val installerLabel = resolveInstallerLabel(installerPkg)
+          val (installerPkg, installerLabel) = getInstallerDetails(pm, pkgName, appInfo)
           val installDate = firstInstall?.let { DateTimeUtils.formatDate(it) } ?: "Unavailable"
           val installTime = firstInstall?.let { DateTimeUtils.formatTime(it) } ?: "Unavailable"
 
@@ -127,9 +193,8 @@ object PackageInventoryScanner {
         val scannedPkgSet = scannedItems.map { it.packageName }.toSet()
         val now = System.currentTimeMillis()
         val newEvents = mutableListOf<AppActivityEventEntity>()
+        val existingEvents = activityDao.getEventsForDeviceOnce(localDeviceId)
 
-        // Detect packages that were previously recorded as installed while monitoring was on,
-        // and are now absent (e.g., removed while app process was not alive)
         val removedUpdates = mutableListOf<AppInventorySnapshotEntity>()
         if (existing.isNotEmpty()) {
           for (prev in existing.values) {
@@ -148,49 +213,70 @@ object PackageInventoryScanner {
                   eventTime = DateTimeUtils.formatTime(now),
                   timestampMillis = now,
                   isImportedSnapshot = false,
+                  batteryPercent = currentBattery,
                 )
               )
             }
           }
-          // Detect genuinely newly added packages since last scan
           for (item in scannedItems) {
             val prev = existing[item.packageName]
             if (prev == null || !prev.isInstalled) {
               val eventTs = item.firstInstallTimeMillis ?: now
-              newEvents.add(
-                AppActivityEventEntity(
-                  deviceId = localDeviceId,
-                  appName = item.appName,
-                  packageName = item.packageName,
-                  versionName = item.versionName,
-                  eventType = "INSTALLED",
-                  installerPackage = item.installerPackage,
-                  installerLabel = item.installerLabel,
-                  eventDate = DateTimeUtils.formatDate(eventTs),
-                  eventTime = DateTimeUtils.formatTime(eventTs),
-                  timestampMillis = eventTs,
-                  isImportedSnapshot = false,
+              val duplicateRecent =
+                existingEvents.any {
+                  it.packageName == item.packageName &&
+                    it.eventType == "INSTALLED" &&
+                    kotlin.math.abs(it.timestampMillis - eventTs) < 10_000L
+                }
+              if (!duplicateRecent) {
+                newEvents.add(
+                  AppActivityEventEntity(
+                    deviceId = localDeviceId,
+                    appName = item.appName,
+                    packageName = item.packageName,
+                    versionName = item.versionName,
+                    eventType = "INSTALLED",
+                    installerPackage = item.installerPackage,
+                    installerLabel = item.installerLabel,
+                    eventDate = DateTimeUtils.formatDate(eventTs),
+                    eventTime = DateTimeUtils.formatTime(eventTs),
+                    timestampMillis = eventTs,
+                    isImportedSnapshot = false,
+                    batteryPercent =
+                      if ((now - eventTs) in -10_000L..300_000L) currentBattery else null,
+                  )
                 )
-              )
+              }
             } else if (
               item.versionCode != prev.versionCode || item.versionName != prev.versionName
             ) {
               val eventTs = item.lastUpdateTimeMillis ?: now
-              newEvents.add(
-                AppActivityEventEntity(
-                  deviceId = localDeviceId,
-                  appName = item.appName,
-                  packageName = item.packageName,
-                  versionName = item.versionName,
-                  eventType = "UPDATED",
-                  installerPackage = item.installerPackage,
-                  installerLabel = item.installerLabel,
-                  eventDate = DateTimeUtils.formatDate(eventTs),
-                  eventTime = DateTimeUtils.formatTime(eventTs),
-                  timestampMillis = eventTs,
-                  isImportedSnapshot = false,
+              val duplicateRecent =
+                existingEvents.any {
+                  it.packageName == item.packageName &&
+                    it.eventType == "UPDATED" &&
+                    it.versionName == item.versionName &&
+                    kotlin.math.abs(it.timestampMillis - eventTs) < 10_000L
+                }
+              if (!duplicateRecent) {
+                newEvents.add(
+                  AppActivityEventEntity(
+                    deviceId = localDeviceId,
+                    appName = item.appName,
+                    packageName = item.packageName,
+                    versionName = item.versionName,
+                    eventType = "UPDATED",
+                    installerPackage = item.installerPackage,
+                    installerLabel = item.installerLabel,
+                    eventDate = DateTimeUtils.formatDate(eventTs),
+                    eventTime = DateTimeUtils.formatTime(eventTs),
+                    timestampMillis = eventTs,
+                    isImportedSnapshot = false,
+                    batteryPercent =
+                      if ((now - eventTs) in -10_000L..300_000L) currentBattery else null,
+                  )
                 )
-              )
+              }
             }
           }
         }

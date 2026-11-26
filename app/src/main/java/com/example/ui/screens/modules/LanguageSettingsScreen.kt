@@ -36,7 +36,6 @@ import com.example.R
 import com.example.ui.MainViewModel
 
 private data class LanguageOption(val code: String, val name: String, val nativeName: String)
-private data class ThemeOption(val mode: String, val labelRes: Int)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,7 +44,6 @@ fun LanguageSettingsScreen(
   onBack: () -> Unit,
 ) {
   val selectedCode by viewModel.languageCode.collectAsStateWithLifecycle()
-  val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
 
   val languages =
     listOf(
@@ -54,13 +52,6 @@ fun LanguageSettingsScreen(
       LanguageOption("es", "Spanish", "Español"),
       LanguageOption("fr", "French", "Français"),
       LanguageOption("ar", "Arabic", "العربية"),
-    )
-
-  val themes =
-    listOf(
-      ThemeOption("light", R.string.theme_light),
-      ThemeOption("dark", R.string.theme_dark),
-      ThemeOption("system", R.string.theme_system),
     )
 
   Scaffold(
@@ -81,100 +72,49 @@ fun LanguageSettingsScreen(
           .padding(innerPadding)
           .verticalScroll(rememberScrollState())
           .padding(16.dp),
-      verticalArrangement = Arrangement.spacedBy(16.dp),
+      verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-      // Theme / Appearance Section
-      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-          text = stringResource(R.string.theme_section_title),
-          style = MaterialTheme.typography.titleMedium,
-          color = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-          text = stringResource(R.string.theme_section_subtitle),
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        themes.forEach { th ->
-          val isSelected = themeMode == th.mode
-          Surface(
-            shape = RoundedCornerShape(16.dp),
-            color =
-              if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-              else MaterialTheme.colorScheme.surface,
-            modifier =
-              Modifier.fillMaxWidth()
-                .border(
-                  width = if (isSelected) 2.dp else 1.dp,
-                  color =
-                    if (isSelected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.outlineVariant,
-                  shape = RoundedCornerShape(16.dp),
-                )
-                .clickable { viewModel.setThemeMode(th.mode) }
-                .testTag("theme_option_${th.mode}"),
+      Text(
+        text = stringResource(R.string.module_language),
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.primary,
+      )
+      Text(
+        text = stringResource(R.string.language_subtitle),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+      Spacer(modifier = Modifier.height(4.dp))
+      languages.forEach { opt ->
+        val isSelected = selectedCode == opt.code
+        Surface(
+          shape = RoundedCornerShape(16.dp),
+          color =
+            if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+            else MaterialTheme.colorScheme.surface,
+          modifier =
+            Modifier.fillMaxWidth()
+              .border(
+                width = if (isSelected) 2.dp else 1.dp,
+                color =
+                  if (isSelected) MaterialTheme.colorScheme.primary
+                  else MaterialTheme.colorScheme.outlineVariant,
+                shape = RoundedCornerShape(16.dp),
+              )
+              .clickable { viewModel.setLanguageCode(opt.code) }
+              .testTag("lang_option_${opt.code}"),
+        ) {
+          Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
           ) {
-            Row(
-              modifier = Modifier.padding(16.dp),
-              horizontalArrangement = Arrangement.SpaceBetween,
-              verticalAlignment = Alignment.CenterVertically,
-            ) {
-              Text(stringResource(th.labelRes), style = MaterialTheme.typography.titleMedium)
-              if (isSelected) {
-                Icon(Icons.Default.CheckCircle, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
-              }
+            Column {
+              Text(opt.nativeName, style = MaterialTheme.typography.titleMedium)
+              Text("${opt.name} (${opt.code})", style = MaterialTheme.typography.labelSmall)
             }
-          }
-        }
-      }
-
-      Spacer(modifier = Modifier.height(8.dp))
-
-      // Language Section
-      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-          text = stringResource(R.string.module_language),
-          style = MaterialTheme.typography.titleMedium,
-          color = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-          text = stringResource(R.string.language_subtitle),
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        languages.forEach { opt ->
-          val isSelected = selectedCode == opt.code
-          Surface(
-            shape = RoundedCornerShape(16.dp),
-            color =
-              if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-              else MaterialTheme.colorScheme.surface,
-            modifier =
-              Modifier.fillMaxWidth()
-                .border(
-                  width = if (isSelected) 2.dp else 1.dp,
-                  color =
-                    if (isSelected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.outlineVariant,
-                  shape = RoundedCornerShape(16.dp),
-                )
-                .clickable { viewModel.setLanguageCode(opt.code) }
-                .testTag("lang_option_${opt.code}"),
-          ) {
-            Row(
-              modifier = Modifier.padding(16.dp),
-              horizontalArrangement = Arrangement.SpaceBetween,
-              verticalAlignment = Alignment.CenterVertically,
-            ) {
-              Column {
-                Text(opt.nativeName, style = MaterialTheme.typography.titleMedium)
-                Text("${opt.name} (${opt.code})", style = MaterialTheme.typography.labelSmall)
-              }
-              if (isSelected) {
-                Icon(Icons.Default.CheckCircle, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
-              }
+            if (isSelected) {
+              Icon(Icons.Default.CheckCircle, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
             }
           }
         }

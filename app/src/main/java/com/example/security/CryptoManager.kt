@@ -77,38 +77,51 @@ object CryptoManager {
     }
   }
 
-  private fun getOrCreateKeystoreSecretKey(context: Context): SecretKey {
-    try {
-      val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-      val existing = keyStore.getKey(KEY_ALIAS, null) as? SecretKey
-      if (existing != null) return existing
+  @Volatile private var cachedSecretKey: SecretKey? = null
+  private val keyLock = Any()
 
-      val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
-      val spec =
-        KeyGenParameterSpec.Builder(
-            KEY_ALIAS,
-            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-          )
-          .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-          .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-          .setKeySize(256)
-          .build()
-      keyGenerator.init(spec)
-      return keyGenerator.generateKey()
-    } catch (_: Exception) {
-      // Fallback for JVM test environments (e.g., Robolectric) where AndroidKeyStore provider is absent
-      val prefs = context.getSharedPreferences("pdr_fallback_keystore", Context.MODE_PRIVATE)
-      val encoded = prefs.getString("aes_key", null)
-      val keyBytes =
-        if (encoded != null) {
-          Base64.decode(encoded, Base64.NO_WRAP)
-        } else {
-          ByteArray(32).also {
-            secureRandom.nextBytes(it)
-            prefs.edit().putString("aes_key", Base64.encodeToString(it, Base64.NO_WRAP)).apply()
+  private fun getOrCreateKeystoreSecretKey(context: Context): SecretKey {
+    cachedSecretKey?.let { return it }
+    synchronized(keyLock) {
+      cachedSecretKey?.let { return it }
+      val resolved =
+        try {
+          val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+          val existing = keyStore.getKey(KEY_ALIAS, null) as? SecretKey
+          if (existing != null) {
+            existing
+          } else {
+            val keyGenerator =
+              KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+            val spec =
+              KeyGenParameterSpec.Builder(
+                  KEY_ALIAS,
+                  KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .build()
+            keyGenerator.init(spec)
+            keyGenerator.generateKey()
           }
+        } catch (_: Exception) {
+          // Fallback for JVM test environments (e.g., Robolectric) where AndroidKeyStore provider is absent
+          val prefs = context.getSharedPreferences("pdr_fallback_keystore", Context.MODE_PRIVATE)
+          val encoded = prefs.getString("aes_key", null)
+          val keyBytes =
+            if (encoded != null) {
+              Base64.decode(encoded, Base64.NO_WRAP)
+            } else {
+              ByteArray(32).also {
+                secureRandom.nextBytes(it)
+                prefs.edit().putString("aes_key", Base64.encodeToString(it, Base64.NO_WRAP)).apply()
+              }
+            }
+          SecretKeySpec(keyBytes, "AES")
         }
-      return SecretKeySpec(keyBytes, "AES")
+      cachedSecretKey = resolved
+      return resolved
     }
   }
 

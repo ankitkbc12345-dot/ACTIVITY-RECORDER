@@ -23,10 +23,12 @@ import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SettingsRemote
@@ -73,6 +75,9 @@ fun AdminDashboardScreen(
   val activeId by viewModel.activeDeviceId.collectAsStateWithLifecycle()
   val activePaired by viewModel.activePairedDevice.collectAsStateWithLifecycle()
   val recording by viewModel.recordingSettings.collectAsStateWithLifecycle()
+  val batteryStatus by viewModel.batteryStatus.collectAsStateWithLifecycle()
+  val cloudPrefs by viewModel.cloudSyncPreferences.collectAsStateWithLifecycle()
+  val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
 
   val modules =
     listOf(
@@ -92,10 +97,17 @@ fun AdminDashboardScreen(
       ),
       DashboardModuleItem(
         R.string.module_call_logs,
-        "Call metadata records",
+        "Call metadata & contact history",
         Icons.Default.Call,
         NavRoutes.CALL_LOGS,
         "mod_call_logs",
+      ),
+      DashboardModuleItem(
+        R.string.module_unlock_logs,
+        "Daily unlocks, method & battery",
+        Icons.Default.LockOpen,
+        NavRoutes.UNLOCK_LOGS,
+        "mod_unlock_logs",
       ),
       DashboardModuleItem(
         R.string.module_recording_control,
@@ -140,6 +152,17 @@ fun AdminDashboardScreen(
         "mod_data_management",
       ),
       DashboardModuleItem(
+        R.string.module_theme,
+        when (themeMode) {
+          "system" -> "Active: Default Mode"
+          "dark" -> "Active: Dark Mode"
+          else -> "Active: Bright Mode"
+        },
+        Icons.Default.Contrast,
+        NavRoutes.THEME_SETTINGS,
+        "mod_theme_settings",
+      ),
+      DashboardModuleItem(
         R.string.module_language,
         "Offline interface localization",
         Icons.Default.Language,
@@ -155,7 +178,7 @@ fun AdminDashboardScreen(
       ),
       DashboardModuleItem(
         R.string.module_cloud_sync,
-        "Google Sign-In & Cloud Firestore",
+        "Auto sync (${cloudPrefs.schedule.name}) & Firebase",
         Icons.Default.CloudSync,
         NavRoutes.CLOUD_SYNC,
         "mod_cloud_sync",
@@ -220,6 +243,15 @@ fun AdminDashboardScreen(
                   if (isLocal) "$localName ($localId) • Live Local"
                   else "${activePaired?.deviceName ?: activeId} • Imported Snapshot",
                 style = MaterialTheme.typography.titleMedium,
+                color =
+                  if (isLocal) MaterialTheme.colorScheme.onPrimaryContainer
+                  else MaterialTheme.colorScheme.onTertiaryContainer,
+              )
+              Spacer(modifier = Modifier.height(4.dp))
+              Text(
+                text =
+                  "${stringResource(R.string.battery_status_label)}: ${batteryStatus.statusLabel}  •  Cloud: ${cloudPrefs.schedule.name}",
+                style = MaterialTheme.typography.labelSmall,
                 color =
                   if (isLocal) MaterialTheme.colorScheme.onPrimaryContainer
                   else MaterialTheme.colorScheme.onTertiaryContainer,

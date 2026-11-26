@@ -63,4 +63,16 @@
     <string name="module_security">Paramètres de sécurité</string>
     <string name="module_internet_config">Configuration Internet</string>
     <string name="module_cloud_sync">Synchronisation Cloud</string>
+    <string name="module_theme">Mode de thème</string>
+    <string name="module_unlock_logs">Historique de déverrouillage</string>
+    <string name="theme_title">Mode de thème</string>
+    <string name="theme_section_title">Apparence et thème</string>
+    <string name="theme_section_subtitle">Sélectionner Mode par défaut, Mode clair ou Mode sombre</string>
+    <string name="theme_system">Mode par défaut (Système)</string>
+    <string name="theme_light">Mode clair</string>
+    <string name="theme_dark">Mode sombre</string>
+    <string name="unlock_logs_title">Historique de déverrouillage</string>
+    <string name="battery_status_label">État de la batterie</string>
+    <string name="sync_status_label">Statut de synchronisation</string>
+    <string name="export_report_action">Exporter PDF</string>
 </resources>

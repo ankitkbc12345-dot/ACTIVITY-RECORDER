@@ -63,4 +63,16 @@
     <string name="module_security">Seguridad</string>
     <string name="module_internet_config">Conectividad a Internet</string>
     <string name="module_cloud_sync">Sincronización en la nube</string>
+    <string name="module_theme">Modo de tema</string>
+    <string name="module_unlock_logs">Historial de desbloqueo</string>
+    <string name="theme_title">Modo de tema</string>
+    <string name="theme_section_title">Apariencia y modo de tema</string>
+    <string name="theme_section_subtitle">Selecciona Modo predeterminado, Modo claro o Modo oscuro</string>
+    <string name="theme_system">Modo predeterminado (Sistema)</string>
+    <string name="theme_light">Modo claro</string>
+    <string name="theme_dark">Modo oscuro</string>
+    <string name="unlock_logs_title">Historial de desbloqueo</string>
+    <string name="battery_status_label">Estado de batería</string>
+    <string name="sync_status_label">Estado de sincronización</string>
+    <string name="export_report_action">Exportar PDF</string>
 </resources>
