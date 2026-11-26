@@ -147,7 +147,7 @@ fun onGoogleSignInClicked(
   onAuthSuccess: () -> Unit,
   onAuthError: (String) -> Unit,
   scope: CoroutineScope,
-  onAuthCancelled: Unit = {},
+  onAuthCancelled: () -> Unit = {},
 ) {
   val clientId = context.googleWebClientId()
   if (clientId.isNullOrBlank()) {
