@@ -67,8 +67,8 @@ object GitHubReleaseParser {
     if (trimmed.isBlank()) {
       return "https://api.github.com/repos/${defaultRepoSlug.trim('/')}/releases/latest"
     }
-    if (trimmed.startsWith("https://api.github.com/repos/") && trimmed.contains("/releases")) {
-      return trimmed
+    if (trimmed.startsWith("https://api.github.com/repos/")) {
+      return if (trimmed.contains("/releases")) trimmed else "${trimmed.trimEnd('/')}/releases/latest"
     }
     if (trimmed.startsWith("https://github.com/")) {
       val path = trimmed.removePrefix("https://github.com/").trim('/')

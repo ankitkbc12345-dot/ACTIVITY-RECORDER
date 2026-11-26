@@ -199,8 +199,10 @@ class ExampleRobolectricTest {
   @Test
   fun `default admin credentials and firebase database config are properly provisioned`() = runTest {
     val context = ApplicationProvider.getApplicationContext<Context>()
-    assertEquals("ankitkbc12345@gmail.com", BuildConfig.ADMIN_ID)
-    assertEquals("ankitkbc12345", BuildConfig.INITIAL_ADMIN_PASSWORD)
+    assertTrue(BuildConfig.ADMIN_ID.isNotBlank())
+    assertTrue(BuildConfig.ADMIN_ID != "OWNER_SUPPLIED_ADMIN_ID")
+    assertTrue(BuildConfig.INITIAL_ADMIN_PASSWORD.isNotBlank())
+    assertTrue(BuildConfig.INITIAL_ADMIN_PASSWORD != "OWNER_SUPPLIED_INITIAL_ADMIN_PASSWORD")
     assertEquals(
       "ai-studio-android-deviceac-885f4179-468d-490b-b294-b962ea389986",
       context.getString(R.string.firestore_database_id),
@@ -210,7 +212,7 @@ class ExampleRobolectricTest {
     store.ensureInitialProvisioning()
     assertEquals(
       LoginOutcome.Success,
-      store.verifyAdminLogin("ankitkbc12345@gmail.com", "ankitkbc12345"),
+      store.verifyAdminLogin(BuildConfig.ADMIN_ID, BuildConfig.INITIAL_ADMIN_PASSWORD),
     )
     store.setAdminLoggedIn(false)
   }

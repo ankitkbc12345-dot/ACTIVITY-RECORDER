@@ -1,36 +1,73 @@
 name: Build APK
+
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      ADMIN_ID: ${{ secrets.ADMIN_ID }}
-      INITIAL_ADMIN_PASSWORD: ${{ secrets.INITIAL_ADMIN_PASSWORD }}
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
-      - uses: gradle/actions/setup-gradle@v4
-      - name: Create .env for build
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+
+      - name: Compute version metadata
+        id: version
         run: |
-          printf 'ADMIN_ID=%s\nINITIAL_ADMIN_PASSWORD=%s\n' \
-            "$ADMIN_ID" "$INITIAL_ADMIN_PASSWORD" > .env
-      - name: Create debug keystore
+          BASE_CODE=1
+          NEXT_CODE=$((BASE_CODE + GITHUB_RUN_NUMBER))
+          NEXT_NAME="1.0.${GITHUB_RUN_NUMBER}"
+          echo "version_code=$NEXT_CODE" >> "$GITHUB_OUTPUT"
+          echo "version_name=$NEXT_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare .env and debug keystore
+        env:
+          ADMIN_ID_SECRET: ${{ secrets.ADMIN_ID }}
+          INITIAL_ADMIN_PASSWORD_SECRET: ${{ secrets.INITIAL_ADMIN_PASSWORD }}
         run: |
-          keytool -genkeypair -v \
-            -keystore debug.keystore \
-            -alias androiddebugkey \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass android -keypass android \
-            -dname "CN=Android Debug,O=Android,C=US"
-      - run: gradle assembleDebug --no-daemon
-      - uses: actions/upload-artifact@v4
+          ADMIN_VAL="${ADMIN_ID_SECRET:-ankitkbc12345@gmail.com}"
+          PASS_VAL="${INITIAL_ADMIN_PASSWORD_SECRET:-ankitkbc12345}"
+          printf 'ADMIN_ID=%s\nINITIAL_ADMIN_PASSWORD=%s\n' "$ADMIN_VAL" "$PASS_VAL" > .env
+
+          if [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          elif [ ! -f debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass android -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      - name: Build Debug APK
+        run: |
+          gradle :app:assembleDebug \
+            -PversionCode=${{ steps.version.outputs.version_code }} \
+            -PversionName=${{ steps.version.outputs.version_name }} \
+            -PgithubRepo=${{ github.repository }} \
+            --no-daemon \
+            --no-configuration-cache
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
         with:
           name: app-apk
           path: app/build/outputs/apk/debug/*.apk
