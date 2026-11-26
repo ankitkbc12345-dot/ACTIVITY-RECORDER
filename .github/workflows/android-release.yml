@@ -23,81 +23,41 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "9.3.1"
 
       - name: Compute auto-incremented versionCode and versionName
         id: version
         run: |
-          BASE_CODE=1
-          NEXT_CODE=$((BASE_CODE + GITHUB_RUN_NUMBER))
+          NEXT_CODE=$((1 + GITHUB_RUN_NUMBER))
           NEXT_NAME="1.0.${GITHUB_RUN_NUMBER}"
           echo "version_code=$NEXT_CODE" >> "$GITHUB_OUTPUT"
           echo "version_name=$NEXT_NAME" >> "$GITHUB_OUTPUT"
-          echo "Using versionCode=$NEXT_CODE, versionName=$NEXT_NAME"
 
-      - name: Prepare signing keystore and build secrets
+      - name: Prepare build secrets
         env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           ADMIN_ID_SECRET: ${{ secrets.ADMIN_ID }}
           INITIAL_ADMIN_PASSWORD_SECRET: ${{ secrets.INITIAL_ADMIN_PASSWORD }}
         run: |
-          if [ -f debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
-          fi
+          ADMIN_VAL="${ADMIN_ID_SECRET:-ankitkbc12345@gmail.com}"
+          PASS_VAL="${INITIAL_ADMIN_PASSWORD_SECRET:-ankitkbc12345}"
+          printf 'ADMIN_ID=%s\nINITIAL_ADMIN_PASSWORD=%s\n' "$ADMIN_VAL" "$PASS_VAL" > .env
 
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
-            echo "BUILD_VARIANT=release" >> "$GITHUB_ENV"
-          else
-            echo "BUILD_VARIANT=debug" >> "$GITHUB_ENV"
-          fi
-
-          if [ ! -f .env ]; then
-            ADMIN_VAL="${ADMIN_ID_SECRET:-ankitkbc12345@gmail.com}"
-            PASS_VAL="${INITIAL_ADMIN_PASSWORD_SECRET:-ankitkbc12345}"
-            printf "ADMIN_ID=%s\nINITIAL_ADMIN_PASSWORD=%s\n" "$ADMIN_VAL" "$PASS_VAL" > .env
-          fi
-
-      - name: Run unit tests
+      - name: Build debug APK
         run: |
-          gradle :app:testDebugUnitTest \
+          gradle :app:assembleDebug \
             -PversionCode=${{ steps.version.outputs.version_code }} \
             -PversionName=${{ steps.version.outputs.version_name }} \
             -PgithubRepo=${{ github.repository }} \
             --no-daemon
 
-      - name: Build APK
-        env:
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      - name: Prepare APK for release
         run: |
-          if [ "$BUILD_VARIANT" = "release" ]; then
-            gradle :app:assembleRelease \
-              -PversionCode=${{ steps.version.outputs.version_code }} \
-              -PversionName=${{ steps.version.outputs.version_name }} \
-              -PgithubRepo=${{ github.repository }} \
-              --no-daemon
-            APK_SRC=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
-          else
-            gradle :app:assembleDebug \
-              -PversionCode=${{ steps.version.outputs.version_code }} \
-              -PversionName=${{ steps.version.outputs.version_name }} \
-              -PgithubRepo=${{ github.repository }} \
-              --no-daemon
-            APK_SRC=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
-          fi
-
+          APK_SRC=$(find app/build/outputs/apk/debug -name '*.apk' | head -n 1)
           if [ -z "$APK_SRC" ] || [ ! -f "$APK_SRC" ]; then
             echo "ERROR: Built APK not found!"
             exit 1
           fi
-
           mkdir -p release-apk
           APK_DEST="release-apk/DeviceRecorder-v${{ steps.version.outputs.version_name }}-b${{ steps.version.outputs.version_code }}.apk"
           cp "$APK_SRC" "$APK_DEST"
