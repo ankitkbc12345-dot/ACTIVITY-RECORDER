@@ -24,6 +24,14 @@
     <string name="updates_download_failed">अपडेट डाउनलोड विफल: %1$s</string>
     <string name="updates_ready_to_install">नया अपडेट डाउनलोड हो गया है — इंस्टॉल करें</string>
     <string name="updates_prompt_check">GitHub Release जांचने के लिए Check Updates दबाएँ।</string>
+    <string name="update_already_updated">التطبيق محدث بالفعل (Already Updated)</string>
+    <string name="update_completed_message">تم تحديث التطبيق الخاص بك.</string>
+    <string name="update_circular_button_cd">التحقق من تحديثات التطبيق وتثبيتها</string>
+    <string name="call_log_access_required_title">Access Required</string>
+    <string name="call_log_access_required_desc">يلزم إذن READ_CALL_LOG لجلب سجلات بيانات المكالمات الحقيقية من هذا الجهاز. لا يتم تسجيل أي صوت مكالمات.</string>
+    <string name="call_log_access_denied_note">تم رفض الإذن. اضغط على منح الإذن للسماح بالوصول أو افتح إعدادات التطبيق.</string>
+    <string name="call_log_grant_permission">منح الإذن</string>
+    <string name="call_log_open_settings">فتح إعدادات التطبيق</string>
     <string name="login_title">دخول المسؤول</string>
     <string name="login_subtitle">مصادقة محلية مصرح بها</string>
     <string name="login_admin_id">معرف المسؤول</string>

@@ -24,6 +24,14 @@
     <string name="updates_download_failed">अपडेट डाउनलोड विफल: %1$s</string>
     <string name="updates_ready_to_install">नया अपडेट डाउनलोड हो गया है — इंस्टॉल करें</string>
     <string name="updates_prompt_check">GitHub Release जांचने के लिए Check Updates दबाएँ।</string>
+    <string name="update_already_updated">आपका ऐप पहले से अपडेटेड है (Already Updated)</string>
+    <string name="update_completed_message">आपका एप्लीकेशन अपडेट हो चुका है।</string>
+    <string name="update_circular_button_cd">ऐप अपडेट जांचें और इंस्टॉल करें</string>
+    <string name="call_log_access_required_title">एक्सेस आवश्यक है (Access Required)</string>
+    <string name="call_log_access_required_desc">इस डिवाइस से वास्तविक कॉल लॉग मेटाडेटा प्राप्त करने के लिए READ_CALL_LOG अनुमति आवश्यक है। कॉल ऑडियो या माइक्रोफ़ोन रिकॉर्डिंग कभी नहीं की जाती।</string>
+    <string name="call_log_access_denied_note">अनुमति अस्वीकृत कर दी गई। एक्सेस देने के लिए Grant Permission दबाएँ, या ऐप सेटिंग्स खोलें।</string>
+    <string name="call_log_grant_permission">अनुमति दें (Grant Permission)</string>
+    <string name="call_log_open_settings">ऐप सेटिंग्स खोलें</string>
     <string name="login_title">प्रशासक लॉगिन</string>
     <string name="login_subtitle">अधिकृत स्थानीय प्रमाणीकरण</string>
     <string name="login_admin_id">एडमिन आईडी</string>

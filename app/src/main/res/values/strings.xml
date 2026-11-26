@@ -30,6 +30,16 @@
     <string name="updates_download_failed">अपडेट डाउनलोड विफल: %1$s</string>
     <string name="updates_ready_to_install">नया अपडेट डाउनलोड हो गया है — इंस्टॉल करें</string>
     <string name="updates_prompt_check">GitHub Release जांचने के लिए Check Updates दबाएँ।</string>
+    <string name="update_already_updated">Already Updated</string>
+    <string name="update_completed_message">Your application has been updated.</string>
+    <string name="update_circular_button_cd">Check and install app updates</string>
+
+    <!-- Call Log Permission Gate -->
+    <string name="call_log_access_required_title">Access Required</string>
+    <string name="call_log_access_required_desc">READ_CALL_LOG permission is required to fetch real call-log metadata from this device. No call audio or microphone recording is ever performed.</string>
+    <string name="call_log_access_denied_note">Permission was denied. Tap Grant Permission to allow access, or open App Settings if access was permanently denied.</string>
+    <string name="call_log_grant_permission">Grant Permission</string>
+    <string name="call_log_open_settings">Open App Settings</string>
 
     <!-- Admin Login -->
     <string name="login_title">Administrator Access</string>

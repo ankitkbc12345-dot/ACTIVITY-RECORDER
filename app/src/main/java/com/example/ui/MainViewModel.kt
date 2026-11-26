@@ -55,6 +55,18 @@ data class StorageMetrics(
   val totalPairedDevices: Int = 0,
 )
 
+sealed interface HomeUpdateFeedback {
+  data object None : HomeUpdateFeedback
+
+  data object AlreadyUpdated : HomeUpdateFeedback
+
+  data object Updated : HomeUpdateFeedback
+
+  data object Offline : HomeUpdateFeedback
+
+  data class Error(val reason: String) : HomeUpdateFeedback
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModel(application: Application) : AndroidViewModel(application) {
   private val app = application as DeviceRecorderApp
@@ -98,6 +110,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   private val _apkDownloadState = MutableStateFlow<ApkDownloadState>(ApkDownloadState.Idle)
   val apkDownloadState: StateFlow<ApkDownloadState> = _apkDownloadState.asStateFlow()
+
+  private val _homeUpdateFeedback = MutableStateFlow<HomeUpdateFeedback>(HomeUpdateFeedback.None)
+  val homeUpdateFeedback: StateFlow<HomeUpdateFeedback> = _homeUpdateFeedback.asStateFlow()
 
   private var updateDownloadJob: kotlinx.coroutines.Job? = null
 
@@ -344,18 +359,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       } else {
         viewModelScope.launch { syncLocalCallLogsInternal(silentIfDisabled = true) }
       }
+    } else {
+      _callLogSyncStatus.value = ""
     }
   }
 
   fun onCallLogPermissionGranted() {
     recordUserActivity()
-    _callLogPermissionGranted.value = CallLogReader.hasCallLogPermission(app)
-    if (_callLogPermissionGranted.value) {
+    val granted = CallLogReader.hasCallLogPermission(app)
+    _callLogPermissionGranted.value = granted
+    if (granted) {
       app.ensureCallLogObserverRegistered()
       viewModelScope.launch {
         settingsStore.setCallLogRecordingEnabled(true)
         syncLocalCallLogsInternal(silentIfDisabled = false)
       }
+    } else {
+      _callLogSyncStatus.value = ""
+    }
+  }
+
+  fun onCallLogPermissionDenied() {
+    recordUserActivity()
+    _callLogPermissionGranted.value = CallLogReader.hasCallLogPermission(app)
+    if (!_callLogPermissionGranted.value) {
+      _callLogSyncStatus.value = ""
     }
   }
 
@@ -379,12 +407,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   fun syncLocalCallLogs() {
     recordUserActivity()
     viewModelScope.launch {
-      refreshPermissionStates()
+      val granted = CallLogReader.hasCallLogPermission(app)
+      _callLogPermissionGranted.value = granted
+      if (!granted) {
+        _callLogSyncStatus.value = ""
+        return@launch
+      }
+      app.ensureCallLogObserverRegistered()
       syncLocalCallLogsInternal(silentIfDisabled = false)
     }
   }
 
   private suspend fun syncLocalCallLogsInternal(silentIfDisabled: Boolean) {
+    if (!CallLogReader.hasCallLogPermission(app)) {
+      _callLogPermissionGranted.value = false
+      _callLogSyncStatus.value = ""
+      return
+    }
     when (val res = CallLogReader.syncLocalCallLogs(app, settingsStore, db.callLogDao())) {
       is CallLogSyncResult.Success -> {
         _callLogSyncStatus.value = "Synced ${res.syncedCount} call log record(s) from device."
@@ -421,6 +460,67 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
       } finally {
         _isCheckingUpdates.value = false
+      }
+    }
+  }
+
+  fun dismissHomeUpdateFeedback() {
+    _homeUpdateFeedback.value = HomeUpdateFeedback.None
+  }
+
+  fun triggerOneTapUpdateCheckAndInstall(
+    onLaunchInstall: (Intent) -> Unit,
+    onRequestUnknownAppsPermission: (Intent) -> Unit,
+  ) {
+    recordUserActivity()
+    if (_isCheckingUpdates.value || _apkDownloadState.value is ApkDownloadState.Downloading || updateDownloadJob?.isActive == true) {
+      return
+    }
+    _homeUpdateFeedback.value = HomeUpdateFeedback.None
+
+    val currentDownload = _apkDownloadState.value
+    if (currentDownload is ApkDownloadState.ReadyToInstall || currentDownload is ApkDownloadState.PermissionRequired) {
+      startUpdateDownloadAndInstall(onLaunchInstall, onRequestUnknownAppsPermission)
+      return
+    }
+
+    val existingChecked = _updateCheckResult.value as? UpdateCheckResult.Checked
+    if (existingChecked != null && existingChecked.updateAvailable && existingChecked.apkDownloadUrl.isNotBlank()) {
+      startUpdateDownloadAndInstall(onLaunchInstall, onRequestUnknownAppsPermission)
+      return
+    }
+
+    viewModelScope.launch {
+      _isCheckingUpdates.value = true
+      val result =
+        try {
+          val cfg = settingsStore.getInternetConfigOnce()
+          appUpdateManager.checkLatestRelease(cfg.updateManifestUrl).also {
+            _updateCheckResult.value = it
+          }
+        } finally {
+          _isCheckingUpdates.value = false
+        }
+
+      when (result) {
+        is UpdateCheckResult.Checked -> {
+          if (result.updateAvailable && result.apkDownloadUrl.isNotBlank()) {
+            startUpdateDownloadAndInstall(onLaunchInstall, onRequestUnknownAppsPermission)
+          } else {
+            _apkDownloadState.value = ApkDownloadState.Idle
+            _homeUpdateFeedback.value = HomeUpdateFeedback.AlreadyUpdated
+          }
+        }
+        UpdateCheckResult.Offline -> {
+          _homeUpdateFeedback.value = HomeUpdateFeedback.Offline
+        }
+        UpdateCheckResult.NotConfigured -> {
+          _homeUpdateFeedback.value = HomeUpdateFeedback.AlreadyUpdated
+        }
+        is UpdateCheckResult.Failed -> {
+          _homeUpdateFeedback.value = HomeUpdateFeedback.Error(result.reason)
+        }
+        UpdateCheckResult.NotChecked -> Unit
       }
     }
   }
@@ -486,8 +586,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
           },
           onFailure = { error ->
-            _apkDownloadState.value =
-              ApkDownloadState.Failed(error.message ?: "APK download failed. Please retry.")
+            val msg = error.message ?: "APK download failed. Please retry."
+            _apkDownloadState.value = ApkDownloadState.Failed(msg)
+            _homeUpdateFeedback.value = HomeUpdateFeedback.Error(msg)
           },
         )
       }
@@ -501,6 +602,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   ) {
     if (appUpdateManager.canInstallUnknownApps()) {
       _apkDownloadState.value = ApkDownloadState.ReadyToInstall(apkFile.absolutePath, versionLabel)
+      _homeUpdateFeedback.value = HomeUpdateFeedback.Updated
       onLaunchInstall(appUpdateManager.createInstallApkIntent(apkFile))
     } else {
       _apkDownloadState.value =
@@ -520,6 +622,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     if (appUpdateManager.canInstallUnknownApps()) {
       _apkDownloadState.value =
         ApkDownloadState.ReadyToInstall(state.apkFilePath, state.versionLabel)
+      _homeUpdateFeedback.value = HomeUpdateFeedback.Updated
       onLaunchInstall(appUpdateManager.createInstallApkIntent(apkFile))
     }
   }

@@ -5,6 +5,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,7 +37,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Autorenew
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.Menu
@@ -65,6 +75,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -75,6 +86,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.R
 import com.example.connectivity.UpdateCheckResult
+import com.example.ui.HomeUpdateFeedback
 import com.example.updates.ApkDownloadState
 import java.text.DateFormatSymbols
 import java.text.SimpleDateFormat
@@ -86,14 +98,19 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val HomeUpdateBannerRed = Color(0xFFD32F2F)
+private val HomeUpdateSuccessGreen = Color(0xFF2E7D32)
 
 @Composable
 fun HomeCalendarScreen(
   onOpenAdminPanel: () -> Unit,
-  onOpenCheckUpdates: () -> Unit,
+  onOpenCheckUpdates: () -> Unit = {},
   updateCheckResult: UpdateCheckResult = UpdateCheckResult.NotChecked,
   apkDownloadState: ApkDownloadState = ApkDownloadState.Idle,
+  isCheckingUpdates: Boolean = false,
+  homeUpdateFeedback: HomeUpdateFeedback = HomeUpdateFeedback.None,
   onStartOrRetryUpdate: () -> Unit = onOpenCheckUpdates,
+  onCircularUpdateClick: () -> Unit = onStartOrRetryUpdate,
+  onDismissUpdateFeedback: () -> Unit = {},
 ) {
   val context = LocalContext.current
   val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -171,19 +188,6 @@ fun HomeCalendarScreen(
             Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
               .testTag("drawer_admin_panel"),
         )
-        Spacer(modifier = Modifier.height(4.dp))
-        NavigationDrawerItem(
-          label = { Text(stringResource(R.string.menu_check_updates)) },
-          icon = { Icon(Icons.Default.SystemUpdate, contentDescription = null) },
-          selected = false,
-          onClick = {
-            scope.launch { drawerState.close() }
-            onOpenCheckUpdates()
-          },
-          modifier =
-            Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-              .testTag("drawer_check_updates"),
-        )
       }
     },
   ) {
@@ -191,6 +195,20 @@ fun HomeCalendarScreen(
       contentWindowInsets = WindowInsets(0, 0, 0, 0),
       containerColor = MaterialTheme.colorScheme.background,
     ) { innerPadding ->
+      val isUpdateBusy = isCheckingUpdates || apkDownloadState is ApkDownloadState.Downloading
+      val infiniteTransition = rememberInfiniteTransition(label = "home_update_spin")
+      val spinAngle by
+        infiniteTransition.animateFloat(
+          initialValue = 0f,
+          targetValue = 360f,
+          animationSpec =
+            infiniteRepeatable(
+              animation = tween(durationMillis = 900, easing = LinearEasing),
+              repeatMode = RepeatMode.Restart,
+            ),
+          label = "home_update_rotation",
+        )
+
       Column(
         modifier =
           Modifier.fillMaxSize()
@@ -199,9 +217,10 @@ fun HomeCalendarScreen(
             .padding(top = 8.dp, start = 20.dp, end = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
       ) {
-        // Minimal top row with ONLY the 3-line hamburger icon in upper-left corner
+        // Minimal top row: left 3-line hamburger icon & right circular rotating update icon
         Row(
           modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
           verticalAlignment = Alignment.CenterVertically,
         ) {
           IconButton(
@@ -214,6 +233,37 @@ fun HomeCalendarScreen(
               tint = MaterialTheme.colorScheme.onBackground,
               modifier = Modifier.size(28.dp),
             )
+          }
+
+          Surface(
+            shape = CircleShape,
+            color =
+              if (isUpdateBusy) MaterialTheme.colorScheme.primary
+              else MaterialTheme.colorScheme.primaryContainer,
+            contentColor =
+              if (isUpdateBusy) MaterialTheme.colorScheme.onPrimary
+              else MaterialTheme.colorScheme.onPrimaryContainer,
+            tonalElevation = 2.dp,
+            modifier =
+              Modifier.minimumInteractiveComponentSize()
+                .size(44.dp)
+                .clip(CircleShape)
+                .border(
+                  1.dp,
+                  MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                  CircleShape,
+                )
+                .clickable(enabled = !isUpdateBusy, onClick = onCircularUpdateClick)
+                .testTag("home_circular_update_button"),
+          ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+              Icon(
+                imageVector = Icons.Default.Autorenew,
+                contentDescription = stringResource(R.string.update_circular_button_cd),
+                modifier =
+                  Modifier.size(24.dp).rotate(if (isUpdateBusy) spinAngle else 0f),
+              )
+            }
           }
         }
 
@@ -230,6 +280,19 @@ fun HomeCalendarScreen(
         ) {
           val availableUpdate =
             (updateCheckResult as? UpdateCheckResult.Checked)?.takeIf { it.updateAvailable }
+
+          AnimatedVisibility(visible = homeUpdateFeedback !is HomeUpdateFeedback.None) {
+            if (homeUpdateFeedback !is HomeUpdateFeedback.None) {
+              HomeUpdateFeedbackChip(
+                feedback = homeUpdateFeedback,
+                onDismiss = onDismissUpdateFeedback,
+              )
+            }
+          }
+
+          if (homeUpdateFeedback !is HomeUpdateFeedback.None) {
+            Spacer(modifier = Modifier.height(10.dp))
+          }
 
           AnimatedVisibility(visible = availableUpdate != null) {
             if (availableUpdate != null) {
@@ -603,3 +666,84 @@ private fun HomeRedUpdateBanner(
     }
   }
 }
+
+@Composable
+private fun HomeUpdateFeedbackChip(
+  feedback: HomeUpdateFeedback,
+  onDismiss: () -> Unit,
+) {
+  val (bgColor, fgColor, icon, text) =
+    when (feedback) {
+      HomeUpdateFeedback.AlreadyUpdated ->
+        FeedbackStyle(
+          bg = HomeUpdateSuccessGreen.copy(alpha = 0.12f),
+          fg = HomeUpdateSuccessGreen,
+          icon = Icons.Default.CheckCircle,
+          text = stringResource(R.string.update_already_updated),
+        )
+      HomeUpdateFeedback.Updated ->
+        FeedbackStyle(
+          bg = HomeUpdateSuccessGreen.copy(alpha = 0.14f),
+          fg = HomeUpdateSuccessGreen,
+          icon = Icons.Default.CheckCircle,
+          text = stringResource(R.string.update_completed_message),
+        )
+      HomeUpdateFeedback.Offline ->
+        FeedbackStyle(
+          bg = MaterialTheme.colorScheme.tertiaryContainer,
+          fg = MaterialTheme.colorScheme.onTertiaryContainer,
+          icon = Icons.Default.CloudOff,
+          text = stringResource(R.string.updates_offline_status),
+        )
+      is HomeUpdateFeedback.Error ->
+        FeedbackStyle(
+          bg = MaterialTheme.colorScheme.errorContainer,
+          fg = MaterialTheme.colorScheme.onErrorContainer,
+          icon = Icons.Default.ErrorOutline,
+          text = feedback.reason,
+        )
+      HomeUpdateFeedback.None -> return
+    }
+
+  Surface(
+    shape = RoundedCornerShape(14.dp),
+    color = bgColor,
+    modifier =
+      Modifier.fillMaxWidth()
+        .border(1.dp, fgColor.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
+        .testTag("home_update_status_chip"),
+  ) {
+    Row(
+      modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      Icon(imageVector = icon, contentDescription = null, tint = fgColor, modifier = Modifier.size(20.dp))
+      Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = fgColor,
+        modifier = Modifier.weight(1f),
+      )
+      IconButton(
+        onClick = onDismiss,
+        modifier = Modifier.size(32.dp).testTag("home_update_status_dismiss"),
+      ) {
+        Icon(
+          imageVector = Icons.Default.Close,
+          contentDescription = "Dismiss",
+          tint = fgColor,
+          modifier = Modifier.size(18.dp),
+        )
+      }
+    }
+  }
+}
+
+private data class FeedbackStyle(
+  val bg: Color,
+  val fg: Color,
+  val icon: androidx.compose.ui.graphics.vector.ImageVector,
+  val text: String,
+)

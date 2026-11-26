@@ -24,6 +24,14 @@
     <string name="updates_download_failed">अपडेट डाउनलोड विफल: %1$s</string>
     <string name="updates_ready_to_install">नया अपडेट डाउनलोड हो गया है — इंस्टॉल करें</string>
     <string name="updates_prompt_check">GitHub Release जांचने के लिए Check Updates दबाएँ।</string>
+    <string name="update_already_updated">L\'application est déjà à jour (Already Updated)</string>
+    <string name="update_completed_message">Votre application a été mise à jour.</string>
+    <string name="update_circular_button_cd">Rechercher et installer les mises à jour</string>
+    <string name="call_log_access_required_title">Access Required</string>
+    <string name="call_log_access_required_desc">L\'autorisation READ_CALL_LOG est requise pour récupérer les journaux d\'appels réels de cet appareil. Aucun audio n\'est enregistré.</string>
+    <string name="call_log_access_denied_note">Autorisation refusée. Appuyez sur Accorder l\'autorisation ou ouvrez les paramètres de l\'app.</string>
+    <string name="call_log_grant_permission">Accorder l\'autorisation</string>
+    <string name="call_log_open_settings">Ouvrir les paramètres</string>
     <string name="login_title">Accès Administrateur</string>
     <string name="login_subtitle">Authentification locale autorisée</string>
     <string name="login_admin_id">ID Admin</string>

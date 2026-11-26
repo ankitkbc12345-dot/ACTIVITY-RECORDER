@@ -40,6 +40,7 @@ import com.example.ui.screens.AdminLoginScreen
 import com.example.ui.screens.HomeCalendarScreen
 import com.example.ui.screens.UpdatesScreen
 import com.example.ui.screens.rememberApkUpdateAction
+import com.example.ui.screens.rememberCircularUpdateAction
 import com.example.ui.screens.modules.AppActivityRecordsScreen
 import com.example.ui.screens.modules.BackupRestoreScreen
 import com.example.ui.screens.modules.CallLogRecordsScreen
@@ -89,7 +90,10 @@ class MainActivity : ComponentActivity() {
       val statusBanner by viewModel.statusBanner.collectAsStateWithLifecycle()
       val updateCheckResult by viewModel.updateCheckResult.collectAsStateWithLifecycle()
       val apkDownloadState by viewModel.apkDownloadState.collectAsStateWithLifecycle()
+      val isCheckingUpdates by viewModel.isCheckingUpdates.collectAsStateWithLifecycle()
+      val homeUpdateFeedback by viewModel.homeUpdateFeedback.collectAsStateWithLifecycle()
       val onTriggerApkUpdate = rememberApkUpdateAction(viewModel)
+      val onCircularUpdateClick = rememberCircularUpdateAction(viewModel)
 
       val systemDark = isSystemInDarkTheme()
       val darkTheme =
@@ -158,7 +162,11 @@ class MainActivity : ComponentActivity() {
                     },
                     updateCheckResult = updateCheckResult,
                     apkDownloadState = apkDownloadState,
+                    isCheckingUpdates = isCheckingUpdates,
+                    homeUpdateFeedback = homeUpdateFeedback,
                     onStartOrRetryUpdate = onTriggerApkUpdate,
+                    onCircularUpdateClick = onCircularUpdateClick,
+                    onDismissUpdateFeedback = { viewModel.dismissHomeUpdateFeedback() },
                   )
                 }
 

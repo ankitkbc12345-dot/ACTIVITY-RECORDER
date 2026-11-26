@@ -85,6 +85,31 @@ fun rememberApkUpdateAction(viewModel: MainViewModel): () -> Unit {
   }
 }
 
+@Composable
+fun rememberCircularUpdateAction(viewModel: MainViewModel): () -> Unit {
+  val context = LocalContext.current
+  val launchInstaller: (Intent) -> Unit = { installIntent ->
+    try {
+      context.startActivity(installIntent)
+    } catch (e: Exception) {
+      viewModel.showBanner(e.message ?: "Unable to launch Android package installer.")
+    }
+  }
+  val unknownAppsLauncher =
+    rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+      viewModel.onUnknownAppsPermissionResult(onLaunchInstall = launchInstaller)
+    }
+
+  return {
+    viewModel.triggerOneTapUpdateCheckAndInstall(
+      onLaunchInstall = launchInstaller,
+      onRequestUnknownAppsPermission = { settingsIntent ->
+        unknownAppsLauncher.launch(settingsIntent)
+      },
+    )
+  }
+}
+
 fun formatByteCount(bytes: Long): String {
   if (bytes <= 0L) return "0 KB"
   val kb = bytes / 1024.0
