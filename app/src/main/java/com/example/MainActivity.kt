@@ -80,6 +80,7 @@ class MainActivity : ComponentActivity() {
     super.onResume()
     viewModel.recordUserActivity()
     viewModel.refreshPermissionStates()
+    viewModel.checkUpdates()
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
