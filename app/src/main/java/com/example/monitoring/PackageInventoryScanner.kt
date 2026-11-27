@@ -13,9 +13,13 @@ import com.example.data.local.AppInventoryDao
 import com.example.data.local.AppInventorySnapshotEntity
 import com.example.data.preferences.SettingsStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 object PackageInventoryScanner {
+
+  private val scanMutex = Mutex()
 
   private val knownStorePackages =
     mapOf(
@@ -137,9 +141,10 @@ object PackageInventoryScanner {
     activityDao: AppActivityDao,
   ): List<AppInventorySnapshotEntity> =
     withContext(Dispatchers.IO) {
-      val localDeviceId = settingsStore.getLocalDeviceId()
-      val recording = settingsStore.getRecordingSettingsOnce()
-      val monitoringActive = recording.masterEnabled && recording.appTrackingEnabled
+      scanMutex.withLock {
+        val localDeviceId = settingsStore.getLocalDeviceId()
+        val recording = settingsStore.getRecordingSettingsOnce()
+        val monitoringActive = recording.masterEnabled && recording.appTrackingEnabled
 
       val pm = context.packageManager
       val installedPackages = getInstalledPackagesCompat(pm)
@@ -288,5 +293,6 @@ object PackageInventoryScanner {
       }
 
       scannedItems
+      }
     }
 }

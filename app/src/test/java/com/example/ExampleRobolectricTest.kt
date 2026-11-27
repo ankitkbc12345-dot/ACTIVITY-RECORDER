@@ -412,4 +412,24 @@ class ExampleRobolectricTest {
       }
     }
   }
+
+  @Test
+  fun `initial provisioning is idempotent across repeated calls and preserves guest mode`() = runTest {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val store = SettingsStore(context)
+
+    store.ensureInitialProvisioning()
+    val firstId = store.getLocalDeviceId()
+    val firstName = store.getLocalDeviceName()
+    assertTrue(firstId.startsWith("DEV-"))
+    assertTrue(firstName.isNotBlank())
+
+    store.ensureInitialProvisioning()
+    assertEquals(firstId, store.getLocalDeviceId())
+
+    store.setGuestMode(true)
+    assertTrue(store.guestModeFlow.first())
+    store.setGuestMode(false)
+    assertFalse(store.guestModeFlow.first())
+  }
 }

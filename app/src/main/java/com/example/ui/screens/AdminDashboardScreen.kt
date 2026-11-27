@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -27,8 +28,7 @@ import com.example.R
 import com.example.security.CryptoManager
 import com.example.ui.MainViewModel
 import com.example.ui.NavRoutes
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
+import com.example.ui.auth.safeCurrentFirebaseUser
 
 private data class DashboardModuleItem(
   val titleRes: Int,
@@ -53,7 +53,8 @@ fun AdminDashboardScreen(
   val batteryStatus by viewModel.batteryStatus.collectAsStateWithLifecycle()
   val cloudPrefs by viewModel.cloudSyncPreferences.collectAsStateWithLifecycle()
 
-  val currentUser = runCatching { Firebase.auth.currentUser }.getOrNull()
+  val context = LocalContext.current
+  val currentUser = safeCurrentFirebaseUser(context)
   val currentUserName = currentUser?.displayName?.takeIf { it.isNotBlank() } ?: "Guest User"
   val currentUserEmail = currentUser?.email?.takeIf { it.isNotBlank() } ?: "Guest Mode"
   val deviceModelName = CryptoManager.getLocalDeviceModel()

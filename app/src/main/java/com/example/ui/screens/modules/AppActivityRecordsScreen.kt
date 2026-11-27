@@ -31,6 +31,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import android.util.LruCache
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -43,6 +45,10 @@ import com.example.data.local.AppInventorySnapshotEntity
 import com.example.monitoring.DateTimeUtils
 import com.example.monitoring.PackageInventoryScanner
 import com.example.ui.MainViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+private val appIconCache = LruCache<String, ImageBitmap>(120)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -328,13 +334,31 @@ fun AppActivityRecordsScreen(
           } else {
             items(filteredInv, key = { it.id }) { item ->
               val isSelected = item.id in selectedInvIds
-              val iconDrawable =
-                remember(item.packageName, isLocal) {
-                  if (isLocal) PackageInventoryScanner.loadAppIcon(context, item.packageName) else null
+              val iconBitmap by
+                produceState<ImageBitmap?>(
+                  initialValue = if (isLocal) appIconCache.get(item.packageName) else null,
+                  key1 = item.packageName,
+                  key2 = isLocal,
+                ) {
+                  if (!isLocal) {
+                    value = null
+                    return@produceState
+                  }
+                  val cached = appIconCache.get(item.packageName)
+                  if (cached != null) {
+                    value = cached
+                    return@produceState
+                  }
+                  value =
+                    withContext(Dispatchers.IO) {
+                      PackageInventoryScanner.loadAppIcon(context.applicationContext, item.packageName)
+                        ?.let { drawableToBitmap(it)?.asImageBitmap() }
+                        ?.also { appIconCache.put(item.packageName, it) }
+                    }
                 }
               InventoryRowCard(
                 item = item,
-                iconDrawable = iconDrawable,
+                iconBitmap = iconBitmap,
                 isLocal = isLocal,
                 selectionMode = selectionMode,
                 isSelected = isSelected,
@@ -527,7 +551,7 @@ private fun StatChip(label: String, value: String, modifier: Modifier = Modifier
 @Composable
 private fun InventoryRowCard(
   item: AppInventorySnapshotEntity,
-  iconDrawable: Drawable?,
+  iconBitmap: ImageBitmap?,
   isLocal: Boolean,
   selectionMode: Boolean,
   isSelected: Boolean,
@@ -536,10 +560,6 @@ private fun InventoryRowCard(
   onClick: () -> Unit,
   onUninstall: () -> Unit,
 ) {
-  val bitmap =
-    remember(iconDrawable) {
-      iconDrawable?.let { drawableToBitmap(it) }
-    }
   Surface(
     shape = RoundedCornerShape(16.dp),
     color =
@@ -565,9 +585,9 @@ private fun InventoryRowCard(
           checked = isSelected,
           onCheckedChange = { onToggleSelect() },
         )
-      } else if (bitmap != null) {
+      } else if (iconBitmap != null) {
         Image(
-          bitmap = bitmap.asImageBitmap(),
+          bitmap = iconBitmap,
           contentDescription = item.appName,
           modifier = Modifier.size(40.dp),
         )

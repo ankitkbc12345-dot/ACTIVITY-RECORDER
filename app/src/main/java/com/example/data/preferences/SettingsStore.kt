@@ -15,7 +15,10 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "pdr_settings")
@@ -85,6 +88,11 @@ data class InternetConnectivityConfig(
 
 class SettingsStore(private val context: Context) {
 
+  companion object {
+    private val provisioningMutex = Mutex()
+    @Volatile private var provisionedFingerprintCache: String? = null
+  }
+
   private object Keys {
     val LOCAL_DEVICE_ID = stringPreferencesKey("local_device_id")
     val LOCAL_DEVICE_NAME = stringPreferencesKey("local_device_name")
@@ -128,39 +136,45 @@ class SettingsStore(private val context: Context) {
   }
 
   val recordingSettingsFlow: Flow<RecordingSettings> =
-    context.dataStore.data.map { prefs ->
-      RecordingSettings(
-        masterEnabled = prefs[Keys.MASTER_RECORDING] ?: true,
-        appTrackingEnabled = prefs[Keys.APP_TRACKING] ?: true,
-        callLogEnabled = prefs[Keys.CALL_LOG_RECORDING] ?: true,
-        unlockTrackingEnabled = prefs[Keys.UNLOCK_TRACKING] ?: true,
-      )
-    }
+    context.dataStore.data
+      .map { prefs ->
+        RecordingSettings(
+          masterEnabled = prefs[Keys.MASTER_RECORDING] ?: true,
+          appTrackingEnabled = prefs[Keys.APP_TRACKING] ?: true,
+          callLogEnabled = prefs[Keys.CALL_LOG_RECORDING] ?: true,
+          unlockTrackingEnabled = prefs[Keys.UNLOCK_TRACKING] ?: true,
+        )
+      }
+      .flowOn(Dispatchers.IO)
 
   val cloudSyncPreferencesFlow: Flow<CloudSyncPreferences> =
-    context.dataStore.data.map { prefs ->
-      CloudSyncPreferences(
-        schedule = CloudSyncSchedule.fromRaw(prefs[Keys.CLOUD_SYNC_SCHEDULE]),
-        dailyHour = (prefs[Keys.CLOUD_SYNC_DAILY_HOUR] ?: 22).coerceIn(0, 23),
-        dailyMinute = (prefs[Keys.CLOUD_SYNC_DAILY_MINUTE] ?: 0).coerceIn(0, 59),
-        syncCallLogs = prefs[Keys.CLOUD_SYNC_CALLS] ?: true,
-        syncAppActivity = prefs[Keys.CLOUD_SYNC_APPS] ?: true,
-        syncUnlockLogs = prefs[Keys.CLOUD_SYNC_UNLOCKS] ?: true,
-        lastCloudSyncMillis = prefs[Keys.CLOUD_LAST_SYNC_MILLIS],
-        lastCloudSyncStatus = prefs[Keys.CLOUD_LAST_SYNC_STATUS] ?: "Ready",
-      )
-    }
+    context.dataStore.data
+      .map { prefs ->
+        CloudSyncPreferences(
+          schedule = CloudSyncSchedule.fromRaw(prefs[Keys.CLOUD_SYNC_SCHEDULE]),
+          dailyHour = (prefs[Keys.CLOUD_SYNC_DAILY_HOUR] ?: 22).coerceIn(0, 23),
+          dailyMinute = (prefs[Keys.CLOUD_SYNC_DAILY_MINUTE] ?: 0).coerceIn(0, 59),
+          syncCallLogs = prefs[Keys.CLOUD_SYNC_CALLS] ?: true,
+          syncAppActivity = prefs[Keys.CLOUD_SYNC_APPS] ?: true,
+          syncUnlockLogs = prefs[Keys.CLOUD_SYNC_UNLOCKS] ?: true,
+          lastCloudSyncMillis = prefs[Keys.CLOUD_LAST_SYNC_MILLIS],
+          lastCloudSyncStatus = prefs[Keys.CLOUD_LAST_SYNC_STATUS] ?: "Ready",
+        )
+      }
+      .flowOn(Dispatchers.IO)
 
   val securitySettingsFlow: Flow<SecuritySettingsState> =
-    context.dataStore.data.map { prefs ->
-      SecuritySettingsState(
-        adminId = prefs[Keys.ADMIN_ID] ?: BuildConfig.ADMIN_ID,
-        failedAttempts = prefs[Keys.FAILED_ATTEMPTS] ?: 0,
-        lockoutUntilMillis = prefs[Keys.LOCKOUT_UNTIL_MILLIS] ?: 0L,
-        inactivityTimeoutMinutes = prefs[Keys.INACTIVITY_TIMEOUT_MINUTES] ?: 0,
-        lastLoginTimestampMillis = prefs[Keys.LAST_LOGIN_MILLIS],
-      )
-    }
+    context.dataStore.data
+      .map { prefs ->
+        SecuritySettingsState(
+          adminId = prefs[Keys.ADMIN_ID] ?: BuildConfig.ADMIN_ID,
+          failedAttempts = prefs[Keys.FAILED_ATTEMPTS] ?: 0,
+          lockoutUntilMillis = prefs[Keys.LOCKOUT_UNTIL_MILLIS] ?: 0L,
+          inactivityTimeoutMinutes = prefs[Keys.INACTIVITY_TIMEOUT_MINUTES] ?: 0,
+          lastLoginTimestampMillis = prefs[Keys.LAST_LOGIN_MILLIS],
+        )
+      }
+      .flowOn(Dispatchers.IO)
 
   val isAdminLoggedInFlow: Flow<Boolean> =
     context.dataStore.data.map { prefs -> prefs[Keys.IS_ADMIN_LOGGED_IN] ?: false }
@@ -178,68 +192,99 @@ class SettingsStore(private val context: Context) {
     context.dataStore.data.map { prefs -> prefs[Keys.GUEST_MODE] ?: false }
 
   val internetConfigFlow: Flow<InternetConnectivityConfig> =
-    context.dataStore.data.map { prefs ->
-      val savedSignaling = prefs[Keys.SIGNALING_URL_ENC]?.let { CryptoManager.decryptLocalString(context, it) }
-      val savedStun = prefs[Keys.STUN_URI]
-      val savedUpdate = prefs[Keys.UPDATE_MANIFEST_URL]
+    context.dataStore.data
+      .map { prefs ->
+        val savedSignaling = prefs[Keys.SIGNALING_URL_ENC]?.let { CryptoManager.decryptLocalString(context, it) }
+        val savedStun = prefs[Keys.STUN_URI]
+        val savedUpdate = prefs[Keys.UPDATE_MANIFEST_URL]
 
-      InternetConnectivityConfig(
-        signalingUrl =
-          if (!savedSignaling.isNullOrBlank()) savedSignaling else InternetConnectivityConfig.DEFAULT_SIGNALING_URL,
-        stunUri =
-          if (!savedStun.isNullOrBlank()) savedStun else InternetConnectivityConfig.DEFAULT_STUN_URI,
-        turnUri = prefs[Keys.TURN_URI] ?: "",
-        turnUsername =
-          prefs[Keys.TURN_USERNAME_ENC]?.let { CryptoManager.decryptLocalString(context, it) } ?: "",
-        turnCredential =
-          prefs[Keys.TURN_CREDENTIAL_ENC]?.let { CryptoManager.decryptLocalString(context, it) }
-            ?: "",
-        connectionToken =
-          prefs[Keys.CONNECTION_TOKEN_ENC]?.let { CryptoManager.decryptLocalString(context, it) }
-            ?: "",
-        updateManifestUrl =
-          if (!savedUpdate.isNullOrBlank()) savedUpdate else InternetConnectivityConfig.DEFAULT_UPDATE_MANIFEST_URL,
-        isAutoConfigured = savedSignaling.isNullOrBlank() && savedStun.isNullOrBlank(),
-      )
+        InternetConnectivityConfig(
+          signalingUrl =
+            if (!savedSignaling.isNullOrBlank()) savedSignaling else InternetConnectivityConfig.DEFAULT_SIGNALING_URL,
+          stunUri =
+            if (!savedStun.isNullOrBlank()) savedStun else InternetConnectivityConfig.DEFAULT_STUN_URI,
+          turnUri = prefs[Keys.TURN_URI] ?: "",
+          turnUsername =
+            prefs[Keys.TURN_USERNAME_ENC]?.let { CryptoManager.decryptLocalString(context, it) } ?: "",
+          turnCredential =
+            prefs[Keys.TURN_CREDENTIAL_ENC]?.let { CryptoManager.decryptLocalString(context, it) }
+              ?: "",
+          connectionToken =
+            prefs[Keys.CONNECTION_TOKEN_ENC]?.let { CryptoManager.decryptLocalString(context, it) }
+              ?: "",
+          updateManifestUrl =
+            if (!savedUpdate.isNullOrBlank()) savedUpdate else InternetConnectivityConfig.DEFAULT_UPDATE_MANIFEST_URL,
+          isAutoConfigured = savedSignaling.isNullOrBlank() && savedStun.isNullOrBlank(),
+        )
+      }
+      .flowOn(Dispatchers.IO)
+
+  suspend fun ensureInitialProvisioning(): Unit =
+    withContext(Dispatchers.IO) {
+      val buildAdminId = BuildConfig.ADMIN_ID
+      val buildInitialPass = BuildConfig.INITIAL_ADMIN_PASSWORD
+      val fingerprint = CryptoManager.sha256Hex("$buildAdminId:$buildInitialPass")
+      if (provisionedFingerprintCache == fingerprint) {
+        return@withContext
+      }
+
+      provisioningMutex.withLock {
+        if (provisionedFingerprintCache == fingerprint) {
+          return@withLock
+        }
+        val currentPrefs = context.dataStore.data.first()
+        val alreadyProvisioned =
+          !currentPrefs[Keys.LOCAL_DEVICE_ID].isNullOrBlank() &&
+            !currentPrefs[Keys.LOCAL_DEVICE_NAME].isNullOrBlank() &&
+            currentPrefs[Keys.ADMIN_ID] == buildAdminId &&
+            !currentPrefs[Keys.ADMIN_PASSWORD_HASH].isNullOrBlank() &&
+            ((currentPrefs[Keys.PASSWORD_USER_CHANGED] ?: false) ||
+              currentPrefs[Keys.PROVISIONED_FINGERPRINT] == fingerprint)
+
+        if (!alreadyProvisioned) {
+          val existingHash = currentPrefs[Keys.ADMIN_PASSWORD_HASH]
+          val userChanged = currentPrefs[Keys.PASSWORD_USER_CHANGED] ?: false
+          val prevFingerprint = currentPrefs[Keys.PROVISIONED_FINGERPRINT]
+          val newPasswordHash =
+            if (existingHash.isNullOrBlank() || (!userChanged && prevFingerprint != fingerprint)) {
+              CryptoManager.hashPassword(buildInitialPass)
+            } else {
+              null
+            }
+
+          context.dataStore.edit { prefs ->
+            if (prefs[Keys.LOCAL_DEVICE_ID].isNullOrBlank()) {
+              prefs[Keys.LOCAL_DEVICE_ID] = "DEV-${UUID.randomUUID().toString().take(8).uppercase()}"
+            }
+            if (prefs[Keys.LOCAL_DEVICE_NAME].isNullOrBlank()) {
+              prefs[Keys.LOCAL_DEVICE_NAME] = CryptoManager.getLocalDeviceModel().ifBlank { "This Device" }
+            }
+
+            prefs[Keys.ADMIN_ID] = buildAdminId
+
+            if (newPasswordHash != null) {
+              prefs[Keys.ADMIN_PASSWORD_HASH] = newPasswordHash
+              prefs[Keys.PROVISIONED_FINGERPRINT] = fingerprint
+              prefs[Keys.FAILED_ATTEMPTS] = 0
+              prefs[Keys.LOCKOUT_UNTIL_MILLIS] = 0L
+            }
+          }
+        }
+        provisionedFingerprintCache = fingerprint
+      }
     }
 
-  suspend fun ensureInitialProvisioning() {
-    val buildAdminId = BuildConfig.ADMIN_ID
-    val buildInitialPass = BuildConfig.INITIAL_ADMIN_PASSWORD
-    val fingerprint = CryptoManager.sha256Hex("$buildAdminId:$buildInitialPass")
-
-    context.dataStore.edit { prefs ->
-      if (prefs[Keys.LOCAL_DEVICE_ID].isNullOrBlank()) {
-        prefs[Keys.LOCAL_DEVICE_ID] = "DEV-${UUID.randomUUID().toString().take(8).uppercase()}"
-      }
-      if (prefs[Keys.LOCAL_DEVICE_NAME].isNullOrBlank()) {
-        prefs[Keys.LOCAL_DEVICE_NAME] = CryptoManager.getLocalDeviceModel().ifBlank { "This Device" }
-      }
-
-      prefs[Keys.ADMIN_ID] = buildAdminId
-
-      val existingHash = prefs[Keys.ADMIN_PASSWORD_HASH]
-      val userChanged = prefs[Keys.PASSWORD_USER_CHANGED] ?: false
-      val prevFingerprint = prefs[Keys.PROVISIONED_FINGERPRINT]
-
-      if (existingHash.isNullOrBlank() || (!userChanged && prevFingerprint != fingerprint)) {
-        prefs[Keys.ADMIN_PASSWORD_HASH] = CryptoManager.hashPassword(buildInitialPass)
-        prefs[Keys.PROVISIONED_FINGERPRINT] = fingerprint
-        prefs[Keys.FAILED_ATTEMPTS] = 0
-        prefs[Keys.LOCKOUT_UNTIL_MILLIS] = 0L
-      }
+  suspend fun getLocalDeviceId(): String =
+    withContext(Dispatchers.IO) {
+      ensureInitialProvisioning()
+      context.dataStore.data.first()[Keys.LOCAL_DEVICE_ID] ?: "DEV-LOCAL"
     }
-  }
 
-  suspend fun getLocalDeviceId(): String {
-    ensureInitialProvisioning()
-    return context.dataStore.data.first()[Keys.LOCAL_DEVICE_ID] ?: "DEV-LOCAL"
-  }
-
-  suspend fun getLocalDeviceName(): String {
-    ensureInitialProvisioning()
-    return context.dataStore.data.first()[Keys.LOCAL_DEVICE_NAME] ?: CryptoManager.getLocalDeviceModel()
-  }
+  suspend fun getLocalDeviceName(): String =
+    withContext(Dispatchers.IO) {
+      ensureInitialProvisioning()
+      context.dataStore.data.first()[Keys.LOCAL_DEVICE_NAME] ?: CryptoManager.getLocalDeviceModel()
+    }
 
   suspend fun setLocalDeviceName(name: String) {
     context.dataStore.edit { prefs -> prefs[Keys.LOCAL_DEVICE_NAME] = name.trim() }

@@ -145,9 +145,8 @@ fun CallLogRecordsScreen(
     viewModel.refreshPermissionStates()
     if (isLocal && hasPermission && recording.masterEnabled && recording.callLogEnabled) {
       permissionDeniedAttempt = false
-      viewModel.syncLocalCallLogs()
       while (true) {
-        delay(8_000L)
+        delay(15_000L)
         viewModel.syncLocalCallLogs()
       }
     }

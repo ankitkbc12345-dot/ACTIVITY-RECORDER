@@ -55,9 +55,8 @@ import com.example.R
 import com.example.connectivity.UpdateCheckResult
 import com.example.ui.HomeUpdateFeedback
 import com.example.ui.MainViewModel
+import com.example.ui.auth.safeCurrentFirebaseUser
 import com.example.updates.ApkDownloadState
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
 import java.text.DateFormatSymbols
 import java.text.SimpleDateFormat
 import java.util.*
@@ -86,7 +85,7 @@ fun HomeCalendarScreen(
 
   val languageCode by viewModel.languageCode.collectAsStateWithLifecycle()
   val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-  val currentUser = runCatching { Firebase.auth.currentUser }.getOrNull()
+  val currentUser = remember { safeCurrentFirebaseUser(context) }
   val photoUrl = currentUser?.photoUrl?.toString()
   val displayName = currentUser?.displayName?.takeIf { it.isNotBlank() } ?: "Guest User"
   val email = currentUser?.email?.takeIf { it.isNotBlank() } ?: "Guest Mode"
@@ -110,7 +109,8 @@ fun HomeCalendarScreen(
     }
   }
 
-  DisposableEffect(context) {
+  DisposableEffect(Unit) {
+    val appCtx = context.applicationContext
     val receiver =
       object : BroadcastReceiver() {
         override fun onReceive(ctx: Context?, intent: Intent?) {
@@ -124,11 +124,11 @@ fun HomeCalendarScreen(
         addAction(Intent.ACTION_DATE_CHANGED)
         addAction(Intent.ACTION_TIMEZONE_CHANGED)
       }
-    ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
+    runCatching {
+      ContextCompat.registerReceiver(appCtx, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
+    }
     onDispose {
-      try {
-        context.unregisterReceiver(receiver)
-      } catch (_: Exception) {}
+      runCatching { appCtx.unregisterReceiver(receiver) }
     }
   }
 
@@ -613,7 +613,7 @@ fun HomeCalendarScreen(
 
               Spacer(modifier = Modifier.height(16.dp))
 
-              val daysOfWeek = DateFormatSymbols(locale).shortWeekdays
+              val daysOfWeek = remember(locale) { DateFormatSymbols(locale).shortWeekdays }
               Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 for (dow in 1..7) {
                   val dayName =

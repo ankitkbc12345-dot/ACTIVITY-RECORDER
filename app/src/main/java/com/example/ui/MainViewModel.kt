@@ -28,9 +28,8 @@ import com.example.export.BackupRestoreSummary
 import com.example.export.EncryptedBackupManager
 import com.example.export.PdfReportGenerator
 import com.example.export.PdfReportRequest
-import com.google.firebase.Firebase
+import com.example.ui.auth.safeCurrentFirebaseUser
 import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.auth.auth
 import com.example.monitoring.BatteryStatusInfo
 import com.example.monitoring.BatteryUtils
 import com.example.monitoring.CallLogReader
@@ -42,6 +41,8 @@ import com.example.updates.ApkDownloadState
 import com.example.updates.AppUpdateManager
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,6 +52,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -88,24 +90,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   val internetManager = app.internetManager
   val appUpdateManager = AppUpdateManager(app, internetManager::isInternetAvailable)
 
-  private val _googleUser = MutableStateFlow<FirebaseUser?>(runCatching { Firebase.auth.currentUser }.getOrNull())
+  private val _googleUser = MutableStateFlow<FirebaseUser?>(safeCurrentFirebaseUser(app))
   val googleUser: StateFlow<FirebaseUser?> = _googleUser.asStateFlow()
 
   private val _isGuestSession = MutableStateFlow(false)
   val isGuestSession: StateFlow<Boolean> = _isGuestSession.asStateFlow()
 
   fun refreshGoogleUser() {
-    val user = runCatching { Firebase.auth.currentUser }.getOrNull()
+    val user = safeCurrentFirebaseUser(app)
     _googleUser.value = user
     if (user != null) {
       _isGuestSession.value = false
-      viewModelScope.launch { settingsStore.setGuestMode(false) }
+      viewModelScope.launch(Dispatchers.IO) { settingsStore.setGuestMode(false) }
     }
   }
 
   fun continueAsGuest() {
     _isGuestSession.value = true
-    viewModelScope.launch { settingsStore.setGuestMode(true) }
+    viewModelScope.launch(Dispatchers.IO) { settingsStore.setGuestMode(true) }
   }
 
   private val _localDeviceId = MutableStateFlow("DEV-LOCAL")
@@ -155,60 +157,80 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   private val _statusBanner = MutableStateFlow<String?>(null)
   val statusBanner: StateFlow<String?> = _statusBanner.asStateFlow()
 
+  private val decryptedCallLogCache = ConcurrentHashMap<String, Pair<String, String>>()
+  private val isSyncingCallLogs = AtomicBoolean(false)
+
   val recordingSettings: StateFlow<RecordingSettings> =
-    settingsStore.recordingSettingsFlow.stateIn(
-      viewModelScope,
-      SharingStarted.Eagerly,
-      RecordingSettings(),
-    )
+    settingsStore.recordingSettingsFlow
+      .flowOn(Dispatchers.IO)
+      .stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        RecordingSettings(),
+      )
 
   val cloudSyncPreferences: StateFlow<CloudSyncPreferences> =
-    settingsStore.cloudSyncPreferencesFlow.stateIn(
-      viewModelScope,
-      SharingStarted.Eagerly,
-      CloudSyncPreferences(),
-    )
+    settingsStore.cloudSyncPreferencesFlow
+      .flowOn(Dispatchers.IO)
+      .stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        CloudSyncPreferences(),
+      )
 
   val securitySettings: StateFlow<SecuritySettingsState> =
-    settingsStore.securitySettingsFlow.stateIn(
-      viewModelScope,
-      SharingStarted.Eagerly,
-      SecuritySettingsState(),
-    )
+    settingsStore.securitySettingsFlow
+      .flowOn(Dispatchers.IO)
+      .stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        SecuritySettingsState(),
+      )
 
   val languageCode: StateFlow<String> =
-    settingsStore.languageCodeFlow.stateIn(viewModelScope, SharingStarted.Eagerly, "en")
+    settingsStore.languageCodeFlow
+      .flowOn(Dispatchers.IO)
+      .stateIn(viewModelScope, SharingStarted.Eagerly, "en")
 
   val themeMode: StateFlow<String> =
-    settingsStore.themeModeFlow.stateIn(viewModelScope, SharingStarted.Eagerly, "light")
+    settingsStore.themeModeFlow
+      .flowOn(Dispatchers.IO)
+      .stateIn(viewModelScope, SharingStarted.Eagerly, "light")
 
   val remoteUninstallMode: StateFlow<String> =
-    settingsStore.remoteUninstallModeFlow.stateIn(
-      viewModelScope,
-      SharingStarted.Eagerly,
-      "MODE_B_INTERACTIVE",
-    )
+    settingsStore.remoteUninstallModeFlow
+      .flowOn(Dispatchers.IO)
+      .stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        "MODE_B_INTERACTIVE",
+      )
 
   val internetConfig: StateFlow<InternetConnectivityConfig> =
-    settingsStore.internetConfigFlow.stateIn(
-      viewModelScope,
-      SharingStarted.Eagerly,
-      InternetConnectivityConfig(),
-    )
+    settingsStore.internetConfigFlow
+      .flowOn(Dispatchers.IO)
+      .stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        InternetConnectivityConfig(),
+      )
 
   val pairedDevices: StateFlow<List<PairedDeviceEntity>> =
     db.pairedDeviceDao()
       .observePairedDevices()
-      .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+      .flowOn(Dispatchers.IO)
+      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
   val activeInventory: StateFlow<List<AppInventorySnapshotEntity>> =
     _activeDeviceId
       .flatMapLatest { devId -> db.appInventoryDao().observeInventoryForDevice(devId) }
+      .flowOn(Dispatchers.IO)
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
   val activeActivityEvents: StateFlow<List<AppActivityEventEntity>> =
     _activeDeviceId
       .flatMapLatest { devId -> db.appActivityDao().observeEventsForDevice(devId) }
+      .flowOn(Dispatchers.IO)
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
   val activeCallLogs: StateFlow<List<CallLogEntity>> =
@@ -216,28 +238,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       .flatMapLatest { devId ->
         db.callLogDao().observeCallLogsForDevice(devId).map { list ->
           list.map { log ->
-            log.copy(
-              phoneNumber = CryptoManager.decryptField(app, log.phoneNumber),
-              contactName =
-                if (log.contactName.isNotEmpty()) {
-                  CryptoManager.decryptField(app, log.contactName).let {
-                    if (it == "Unavailable") "" else it
-                  }
-                } else "",
-            )
+            val cacheKey = "${log.id}:${log.phoneNumber}:${log.contactName}"
+            val cached = decryptedCallLogCache[cacheKey]
+            val (phone, contact) =
+              if (cached != null) {
+                cached
+              } else {
+                val p = CryptoManager.decryptField(app, log.phoneNumber)
+                val c =
+                  if (log.contactName.isNotEmpty()) {
+                    CryptoManager.decryptField(app, log.contactName).let {
+                      if (it == "Unavailable") "" else it
+                    }
+                  } else ""
+                (p to c).also { decryptedCallLogCache[cacheKey] = it }
+              }
+            log.copy(phoneNumber = phone, contactName = contact)
           }
         }
       }
+      .flowOn(Dispatchers.IO)
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
   val activeUnlockEvents: StateFlow<List<DeviceUnlockEventEntity>> =
     _activeDeviceId
       .flatMapLatest { devId -> db.unlockEventDao().observeUnlockEventsForDevice(devId) }
+      .flowOn(Dispatchers.IO)
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
   val remoteUninstallRequests: StateFlow<List<RemoteUninstallRequestEntity>> =
     db.remoteUninstallDao()
       .observeRequests()
+      .flowOn(Dispatchers.IO)
       .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
   val activePairedDevice: StateFlow<PairedDeviceEntity?> =
@@ -246,17 +278,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
   init {
-    viewModelScope.launch {
-      settingsStore.ensureInitialProvisioning()
+    viewModelScope.launch(Dispatchers.IO) {
+      runCatching { settingsStore.ensureInitialProvisioning() }
       if (!_isGuestSession.value && _googleUser.value == null) {
-        _isGuestSession.value = settingsStore.guestModeFlow.first()
+        _isGuestSession.value = runCatching { settingsStore.guestModeFlow.first() }.getOrDefault(false)
       }
-      val persistedLoggedIn = settingsStore.isAdminLoggedInFlow.first()
+      val persistedLoggedIn = runCatching { settingsStore.isAdminLoggedInFlow.first() }.getOrDefault(false)
       if (!authStateExplicitlySet) {
         _isAdminAuthenticated.value = persistedLoggedIn
       }
-      val localId = settingsStore.getLocalDeviceId()
-      val localName = settingsStore.getLocalDeviceName()
+      val localId = runCatching { settingsStore.getLocalDeviceId() }.getOrDefault("DEV-LOCAL")
+      val localName = runCatching { settingsStore.getLocalDeviceName() }.getOrDefault(CryptoManager.getLocalDeviceModel())
       _localDeviceId.value = localId
       _localDeviceName.value = localName
       _activeDeviceId.value = localId
@@ -277,11 +309,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   }
 
   fun recordUserActivity() {
-    _lastActivityMillis.value = System.currentTimeMillis()
+    val now = System.currentTimeMillis()
+    if (now - _lastActivityMillis.value >= 1_000L) {
+      _lastActivityMillis.value = now
+    }
   }
 
   fun refreshBatteryStatus() {
-    _batteryStatus.value = BatteryUtils.getBatteryStatus(app)
+    viewModelScope.launch(Dispatchers.IO) {
+      _batteryStatus.value = BatteryUtils.getBatteryStatus(app)
+    }
   }
 
   suspend fun login(adminId: String, password: String): LoginOutcome {
@@ -302,7 +339,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   fun logout() {
     authStateExplicitlySet = true
     _isAdminAuthenticated.value = false
-    viewModelScope.launch { settingsStore.setAdminLoggedIn(false) }
+    viewModelScope.launch(Dispatchers.IO) { settingsStore.setAdminLoggedIn(false) }
     bluetoothManager.stopListening()
     wifiDirectManager.stopSocketListener()
     internetManager.disconnect()
@@ -347,12 +384,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   fun setInactivityTimeout(minutes: Int) {
     recordUserActivity()
-    viewModelScope.launch { settingsStore.setInactivityTimeoutMinutes(minutes) }
+    viewModelScope.launch(Dispatchers.IO) { settingsStore.setInactivityTimeoutMinutes(minutes) }
   }
 
   fun setLocalDeviceName(name: String) {
     recordUserActivity()
-    viewModelScope.launch {
+    viewModelScope.launch(Dispatchers.IO) {
       settingsStore.setLocalDeviceName(name)
       _localDeviceName.value = settingsStore.getLocalDeviceName()
     }
@@ -382,7 +419,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   fun setMasterRecording(enabled: Boolean) {
     recordUserActivity()
-    viewModelScope.launch {
+    viewModelScope.launch(Dispatchers.IO) {
       settingsStore.setMasterRecording(enabled)
       if (enabled && recordingSettings.value.appTrackingEnabled) {
         refreshLocalInventory()
@@ -392,7 +429,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   fun setAppTrackingEnabled(enabled: Boolean) {
     recordUserActivity()
-    viewModelScope.launch {
+    viewModelScope.launch(Dispatchers.IO) {
       settingsStore.setAppTrackingEnabled(enabled)
       if (enabled && recordingSettings.value.masterEnabled) {
         refreshLocalInventory()
@@ -402,7 +439,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   fun setCallLogRecordingEnabled(enabled: Boolean) {
     recordUserActivity()
-    viewModelScope.launch {
+    viewModelScope.launch(Dispatchers.IO) {
       settingsStore.setCallLogRecordingEnabled(enabled)
       refreshPermissionStates()
       if (enabled && recordingSettings.value.masterEnabled && _callLogPermissionGranted.value) {
@@ -413,7 +450,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   fun setUnlockTrackingEnabled(enabled: Boolean) {
     recordUserActivity()
-    viewModelScope.launch {
+    viewModelScope.launch(Dispatchers.IO) {
       settingsStore.setUnlockTrackingEnabled(enabled)
       if (enabled && recordingSettings.value.masterEnabled) {
         refreshUnlockLogs()
@@ -423,12 +460,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   fun setCloudSyncSchedule(schedule: CloudSyncSchedule) {
     recordUserActivity()
-    viewModelScope.launch { settingsStore.setCloudSyncSchedule(schedule) }
+    viewModelScope.launch(Dispatchers.IO) { settingsStore.setCloudSyncSchedule(schedule) }
   }
 
   fun setCloudSyncDailyTime(hour: Int, minute: Int) {
     recordUserActivity()
-    viewModelScope.launch { settingsStore.setCloudSyncDailyTime(hour, minute) }
+    viewModelScope.launch(Dispatchers.IO) { settingsStore.setCloudSyncDailyTime(hour, minute) }
   }
 
   fun setCloudSyncDataToggles(
@@ -437,14 +474,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     syncUnlockLogs: Boolean,
   ) {
     recordUserActivity()
-    viewModelScope.launch {
+    viewModelScope.launch(Dispatchers.IO) {
       settingsStore.setCloudSyncDataToggles(syncCallLogs, syncAppActivity, syncUnlockLogs)
     }
   }
 
   fun refreshUnlockLogs() {
     refreshBatteryStatus()
-    viewModelScope.launch {
+    viewModelScope.launch(Dispatchers.IO) {
       UnlockTracker.syncUsageStatsUnlocks(
         context = app,
         settingsStore = settingsStore,
@@ -461,13 +498,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     _callLogPermissionGranted.value = granted
     if (granted) {
       app.ensureCallLogObserverRegistered()
-      if (!prev) {
-        viewModelScope.launch {
+      viewModelScope.launch(Dispatchers.IO) {
+        if (!prev) {
           settingsStore.setCallLogRecordingEnabled(true)
-          syncLocalCallLogsInternal(silentIfDisabled = true)
         }
-      } else {
-        viewModelScope.launch { syncLocalCallLogsInternal(silentIfDisabled = true) }
+        syncLocalCallLogsInternal(silentIfDisabled = true)
       }
     } else {
       _callLogSyncStatus.value = ""
@@ -480,7 +515,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     _callLogPermissionGranted.value = granted
     if (granted) {
       app.ensureCallLogObserverRegistered()
-      viewModelScope.launch {
+      viewModelScope.launch(Dispatchers.IO) {
         settingsStore.setCallLogRecordingEnabled(true)
         syncLocalCallLogsInternal(silentIfDisabled = false)
       }
@@ -499,7 +534,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   fun refreshLocalInventory() {
     refreshBatteryStatus()
-    viewModelScope.launch {
+    viewModelScope.launch(Dispatchers.IO) {
       _isScanningInventory.value = true
       try {
         PackageInventoryScanner.scanAndSyncLocalInventory(
@@ -518,7 +553,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   fun syncLocalCallLogs() {
     recordUserActivity()
     refreshBatteryStatus()
-    viewModelScope.launch {
+    viewModelScope.launch(Dispatchers.IO) {
       val granted = CallLogReader.hasCallLogPermission(app)
       _callLogPermissionGranted.value = granted
       if (!granted) {
@@ -531,37 +566,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   }
 
   private suspend fun syncLocalCallLogsInternal(silentIfDisabled: Boolean) {
-    if (!CallLogReader.hasCallLogPermission(app)) {
-      _callLogPermissionGranted.value = false
-      _callLogSyncStatus.value = ""
-      return
-    }
-    when (val res = CallLogReader.syncLocalCallLogs(app, settingsStore, db.callLogDao())) {
-      is CallLogSyncResult.Success -> {
-        _callLogSyncStatus.value = "Synced ${res.syncedCount} call log record(s) from device."
-        refreshStorageMetrics()
+    if (!isSyncingCallLogs.compareAndSet(false, true)) return
+    try {
+      if (!CallLogReader.hasCallLogPermission(app)) {
+        _callLogPermissionGranted.value = false
+        _callLogSyncStatus.value = ""
+        return
       }
-      CallLogSyncResult.PermissionDenied -> {
-        if (!silentIfDisabled) {
-          _callLogSyncStatus.value = "READ_CALL_LOG permission is not granted."
+      when (val res = CallLogReader.syncLocalCallLogs(app, settingsStore, db.callLogDao())) {
+        is CallLogSyncResult.Success -> {
+          _callLogSyncStatus.value = "Synced ${res.syncedCount} call log record(s) from device."
+          refreshStorageMetrics()
+        }
+        CallLogSyncResult.PermissionDenied -> {
+          if (!silentIfDisabled) {
+            _callLogSyncStatus.value = "READ_CALL_LOG permission is not granted."
+          }
+        }
+        CallLogSyncResult.RecordingDisabled -> {
+          if (!silentIfDisabled) {
+            _callLogSyncStatus.value = "Call Log Recording is currently paused or disabled."
+          }
+        }
+        is CallLogSyncResult.Error -> {
+          if (!silentIfDisabled) {
+            _callLogSyncStatus.value = "Error: ${res.message}"
+          }
         }
       }
-      CallLogSyncResult.RecordingDisabled -> {
-        if (!silentIfDisabled) {
-          _callLogSyncStatus.value = "Call Log Recording is currently paused or disabled."
-        }
-      }
-      is CallLogSyncResult.Error -> {
-        if (!silentIfDisabled) {
-          _callLogSyncStatus.value = "Error: ${res.message}"
-        }
-      }
+    } finally {
+      isSyncingCallLogs.set(false)
     }
   }
 
   fun checkUpdates() {
     if (_isCheckingUpdates.value) return
-    viewModelScope.launch {
+    viewModelScope.launch(Dispatchers.IO) {
       _isCheckingUpdates.value = true
       try {
         val cfg = settingsStore.getInternetConfigOnce()
@@ -744,22 +784,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   fun setLanguageCode(code: String) {
     recordUserActivity()
-    viewModelScope.launch { settingsStore.setLanguageCode(code) }
+    viewModelScope.launch(Dispatchers.IO) { settingsStore.setLanguageCode(code) }
   }
 
   fun setThemeMode(mode: String) {
     recordUserActivity()
-    viewModelScope.launch { settingsStore.setThemeMode(mode) }
+    viewModelScope.launch(Dispatchers.IO) { settingsStore.setThemeMode(mode) }
   }
 
   fun setRemoteUninstallMode(mode: String) {
     recordUserActivity()
-    viewModelScope.launch { settingsStore.setRemoteUninstallMode(mode) }
+    viewModelScope.launch(Dispatchers.IO) { settingsStore.setRemoteUninstallMode(mode) }
   }
 
   fun saveInternetConfig(config: InternetConnectivityConfig) {
     recordUserActivity()
-    viewModelScope.launch {
+    viewModelScope.launch(Dispatchers.IO) {
       settingsStore.saveInternetConfig(config)
       _statusBanner.value = "Internet connectivity configuration saved securely."
     }
@@ -767,7 +807,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   fun clearInternetConfig() {
     recordUserActivity()
-    viewModelScope.launch {
+    viewModelScope.launch(Dispatchers.IO) {
       settingsStore.clearInternetConfig()
       internetManager.testSignalingConnection(InternetConnectivityConfig())
       _statusBanner.value = "Internet connectivity configuration cleared."
@@ -1013,33 +1053,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       }
     }
 
-  suspend fun exportBackupToUri(uri: Uri, passphrase: String): Result<BackupRestoreSummary> {
-    recordUserActivity()
-    return try {
-      val stream =
-        app.contentResolver.openOutputStream(uri)
-          ?: return Result.failure(IllegalStateException("Cannot write to selected file"))
-      val summary =
-        EncryptedBackupManager.exportEncryptedBackup(app, db, _localDeviceId.value, passphrase, stream)
-      Result.success(summary)
-    } catch (e: Exception) {
-      Result.failure(e)
+  suspend fun exportBackupToUri(uri: Uri, passphrase: String): Result<BackupRestoreSummary> =
+    withContext(Dispatchers.IO) {
+      recordUserActivity()
+      try {
+        val stream =
+          app.contentResolver.openOutputStream(uri)
+            ?: return@withContext Result.failure(IllegalStateException("Cannot write to selected file"))
+        val summary =
+          EncryptedBackupManager.exportEncryptedBackup(app, db, _localDeviceId.value, passphrase, stream)
+        Result.success(summary)
+      } catch (e: Exception) {
+        Result.failure(e)
+      }
     }
-  }
 
-  suspend fun restoreBackupFromUri(uri: Uri, passphrase: String): Result<BackupRestoreSummary> {
-    recordUserActivity()
-    return try {
-      val stream =
-        app.contentResolver.openInputStream(uri)
-          ?: return Result.failure(IllegalStateException("Cannot read selected file"))
-      val summary = EncryptedBackupManager.restoreEncryptedBackup(app, db, passphrase, stream)
-      refreshStorageMetrics()
-      Result.success(summary)
-    } catch (e: Exception) {
-      Result.failure(e)
+  suspend fun restoreBackupFromUri(uri: Uri, passphrase: String): Result<BackupRestoreSummary> =
+    withContext(Dispatchers.IO) {
+      recordUserActivity()
+      try {
+        val stream =
+          app.contentResolver.openInputStream(uri)
+            ?: return@withContext Result.failure(IllegalStateException("Cannot read selected file"))
+        val summary = EncryptedBackupManager.restoreEncryptedBackup(app, db, passphrase, stream)
+        refreshStorageMetrics()
+        Result.success(summary)
+      } catch (e: Exception) {
+        Result.failure(e)
+      }
     }
-  }
 
   fun clearActivityEvents(olderThanDays: Int?) {
     recordUserActivity()

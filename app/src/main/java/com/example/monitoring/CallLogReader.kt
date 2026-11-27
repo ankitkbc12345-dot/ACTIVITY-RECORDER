@@ -11,6 +11,7 @@ import com.example.data.local.CallLogDao
 import com.example.data.local.CallLogEntity
 import com.example.data.preferences.SettingsStore
 import com.example.security.CryptoManager
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -28,7 +29,9 @@ sealed interface CallLogSyncResult {
 
 object CallLogReader {
 
+  private const val MAX_SYNC_ROWS = 500
   private val syncMutex = Mutex()
+  private val verifiedRowHashes = ConcurrentHashMap<String, Int>()
 
   fun hasCallLogPermission(context: Context): Boolean {
     return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) ==
@@ -84,7 +87,7 @@ object CallLogReader {
               val dateIdx = cursor.getColumnIndex(CallLog.Calls.DATE)
               val durIdx = cursor.getColumnIndex(CallLog.Calls.DURATION)
 
-              while (cursor.moveToNext()) {
+              while (cursor.moveToNext() && totalSeen < MAX_SYNC_ROWS) {
                 totalSeen += 1
                 val rowId = if (idIdx >= 0) cursor.getLong(idIdx) else cursor.position.toLong()
                 val rawNum = if (numIdx >= 0) cursor.getString(numIdx) else null
@@ -120,21 +123,29 @@ object CallLogReader {
                   existing?.batteryPercent
                     ?: if ((now - dateMillis) in -10_000L..300_000L) currentBatteryPercent else null
 
+                val contentSig = 31 * number.hashCode() + rawName.hashCode()
                 if (existing != null) {
+                  val metadataUnchanged =
+                    existing.callType == callType &&
+                      existing.durationSeconds == durationSec &&
+                      existing.batteryPercent == resolvedBattery
+                  if (metadataUnchanged && verifiedRowHashes[entityId] == contentSig) {
+                    continue
+                  }
                   val existingPlainName =
                     if (existing.contactName.isNotEmpty()) CryptoManager.decryptField(context, existing.contactName)
                     else ""
                   val existingPlainNum = CryptoManager.decryptField(context, existing.phoneNumber)
                   val unchanged =
-                    existing.callType == callType &&
-                      existing.durationSeconds == durationSec &&
-                      existing.batteryPercent == resolvedBattery &&
+                    metadataUnchanged &&
                       existingPlainNum == number &&
                       existingPlainName == rawName
                   if (unchanged) {
+                    verifiedRowHashes[entityId] = contentSig
                     continue
                   }
                 }
+                verifiedRowHashes[entityId] = contentSig
 
                 toUpsert.add(
                   CallLogEntity(
