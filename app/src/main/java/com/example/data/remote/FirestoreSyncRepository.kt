@@ -43,10 +43,11 @@ class FirestoreSyncRepository(
     appContext = context.applicationContext,
   )
 
-  private val auth = Firebase.auth
+  private val auth
+    get() = runCatching { Firebase.auth }.getOrNull()
 
   private fun requireUserId(): String {
-    val uid = auth.currentUser?.uid
+    val uid = auth?.currentUser?.uid
     if (uid.isNullOrBlank()) {
       throw IllegalStateException("Google Sign-In required before accessing Cloud Firestore.")
     }
@@ -73,7 +74,7 @@ class FirestoreSyncRepository(
               .firstOrNull()
           if (firestoreError == null && error is CancellationException) throw error
           val exceptionToLog = firestoreError ?: (error as? Exception)
-          if (exceptionToLog != null && auth.currentUser?.uid == uid) {
+          if (exceptionToLog != null && auth?.currentUser?.uid == uid) {
             handleFirestoreError(exceptionToLog, OperationType.GET, path)
           }
           throw error
@@ -103,7 +104,7 @@ class FirestoreSyncRepository(
               .firstOrNull()
           if (firestoreError == null && error is CancellationException) throw error
           val exceptionToLog = firestoreError ?: (error as? Exception)
-          if (exceptionToLog != null && auth.currentUser?.uid == uid) {
+          if (exceptionToLog != null && auth?.currentUser?.uid == uid) {
             handleFirestoreError(exceptionToLog, OperationType.LIST, path)
           }
           throw error
@@ -139,7 +140,7 @@ class FirestoreSyncRepository(
               .firstOrNull()
           if (firestoreError == null && error is CancellationException) throw error
           val exceptionToLog = firestoreError ?: (error as? Exception)
-          if (exceptionToLog != null && auth.currentUser?.uid == uid) {
+          if (exceptionToLog != null && auth?.currentUser?.uid == uid) {
             handleFirestoreError(exceptionToLog, OperationType.LIST, path)
           }
           throw error
@@ -156,10 +157,10 @@ class FirestoreSyncRepository(
     syncAppActivity: Boolean = true,
     syncUnlockLogs: Boolean = true,
   ): Result<CloudSyncUploadSummary> {
-    var currentPath = "users/${auth.currentUser?.uid ?: "unauthenticated"}"
+    var currentPath = "users/${auth?.currentUser?.uid ?: "unauthenticated"}"
     return try {
       val uid = requireUserId()
-      val user = auth.currentUser
+      val user = auth?.currentUser
       val safeDeviceId = sanitizeFirestoreId(localDeviceId, maxLen = 64)
       val safeDeviceName = localDeviceName.trim().take(80).ifEmpty { "This Device" }
       val safeModel = CryptoManager.getLocalDeviceModel().trim().take(80).ifEmpty { "Android Device" }
@@ -323,7 +324,7 @@ class FirestoreSyncRepository(
   }
 
   suspend fun toggleSnapshotSyncStatus(snapshot: CloudDeviceSnapshot): Result<Unit> {
-    var docPath = "users/${auth.currentUser?.uid ?: "unauthenticated"}/device_snapshots/${snapshot.id}"
+    var docPath = "users/${auth?.currentUser?.uid ?: "unauthenticated"}/device_snapshots/${snapshot.id}"
     return try {
       val uid = requireUserId()
       val targetId = snapshot.id.ifBlank { sanitizeFirestoreId(snapshot.deviceId, maxLen = 64) }
@@ -349,7 +350,7 @@ class FirestoreSyncRepository(
   }
 
   suspend fun deleteDeviceSnapshot(snapshotId: String): Result<Unit> {
-    var docPath = "users/${auth.currentUser?.uid ?: "unauthenticated"}/device_snapshots/$snapshotId"
+    var docPath = "users/${auth?.currentUser?.uid ?: "unauthenticated"}/device_snapshots/$snapshotId"
     return try {
       val uid = requireUserId()
       require(snapshotId.isNotBlank()) { "Snapshot ID cannot be blank." }
@@ -369,7 +370,7 @@ class FirestoreSyncRepository(
     localDb: AppDatabase,
     targetDeviceId: String,
   ): Result<Int> {
-    var docPath = "users/${auth.currentUser?.uid ?: "unauthenticated"}/activity_records"
+    var docPath = "users/${auth?.currentUser?.uid ?: "unauthenticated"}/activity_records"
     return try {
       val uid = requireUserId()
       val snapshot =
@@ -454,7 +455,7 @@ class FirestoreSyncRepository(
   }
 
   suspend fun deleteActivityRecord(recordId: String): Result<Unit> {
-    var docPath = "users/${auth.currentUser?.uid ?: "unauthenticated"}/activity_records/$recordId"
+    var docPath = "users/${auth?.currentUser?.uid ?: "unauthenticated"}/activity_records/$recordId"
     return try {
       val uid = requireUserId()
       require(recordId.isNotBlank()) { "Record ID cannot be blank." }

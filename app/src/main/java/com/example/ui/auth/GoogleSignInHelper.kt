@@ -37,6 +37,8 @@ import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.Companion.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.CoroutineScope
@@ -62,6 +64,30 @@ internal fun Context.googleWebClientId(): String? {
   }
 }
 
+fun isFirebaseInitialized(context: Context): Boolean {
+  return try {
+    if (FirebaseApp.getApps(context).isNotEmpty()) {
+      true
+    } else {
+      FirebaseApp.initializeApp(context) != null
+    }
+  } catch (_: Exception) {
+    false
+  }
+}
+
+fun safeCurrentFirebaseUser(context: Context? = null): FirebaseUser? {
+  return try {
+    if (context != null && !isFirebaseInitialized(context)) {
+      null
+    } else {
+      Firebase.auth.currentUser
+    }
+  } catch (_: Exception) {
+    null
+  }
+}
+
 fun attemptAutoSignIn(
   context: Context,
   credentialManager: CredentialManager,
@@ -69,7 +95,11 @@ fun attemptAutoSignIn(
   onUnauthenticated: () -> Unit,
   scope: CoroutineScope,
 ) {
-  if (Firebase.auth.currentUser != null) {
+  if (!isFirebaseInitialized(context)) {
+    onUnauthenticated()
+    return
+  }
+  if (safeCurrentFirebaseUser(context) != null) {
     onAuthSuccess()
     return
   }
@@ -155,9 +185,13 @@ fun onGoogleSignInClicked(
   scope: CoroutineScope,
   onAuthCancelled: () -> Unit = {},
 ) {
+  if (!isFirebaseInitialized(context)) {
+    onAuthError("Google Sign-In is unavailable in this build. Tap Continue with Guest to use all app features.")
+    return
+  }
   val clientId = context.googleWebClientId()
   if (clientId.isNullOrBlank()) {
-    onAuthError("Google Sign-In configuration missing: default_web_client_id not found")
+    onAuthError("Google Sign-In configuration missing. Tap Continue with Guest to use all app features.")
     return
   }
   val activity = context.findActivity()
@@ -199,7 +233,7 @@ fun signOutFromGoogle(
       } catch (e: Exception) {
         Log.w("Auth", "Failed to clear credential state: ${e.message}")
       } finally {
-        Firebase.auth.signOut()
+        runCatching { Firebase.auth.signOut() }
         onSignOutComplete()
       }
     }

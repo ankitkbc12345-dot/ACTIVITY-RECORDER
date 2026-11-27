@@ -373,4 +373,43 @@ class ExampleRobolectricTest {
     val clientId = context.googleWebClientId()
     assertTrue(clientId == null || clientId.contains(".apps.googleusercontent.com"))
   }
+
+  @Test
+  fun `auth helpers and auto sign-in fail safely when firebase or google config is missing`() = runTest {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val hadApps = com.google.firebase.FirebaseApp.getApps(context).isNotEmpty()
+    try {
+      com.google.firebase.FirebaseApp.getApps(context).forEach { app -> runCatching { app.delete() } }
+      val credentialManager = androidx.credentials.CredentialManager.create(context)
+      var unauthCalled = false
+      com.example.ui.auth.attemptAutoSignIn(
+        context = context,
+        credentialManager = credentialManager,
+        onAuthSuccess = {},
+        onUnauthenticated = { unauthCalled = true },
+        scope = backgroundScope,
+      )
+      val user = com.example.ui.auth.safeCurrentFirebaseUser(context)
+      assertTrue(user == null)
+      assertTrue(unauthCalled || com.example.ui.auth.isFirebaseInitialized(context))
+
+      val missingClientContext =
+        object : android.content.ContextWrapper(context) {
+          override fun getPackageName(): String = "com.example.nonexistent"
+        }
+      var authError: String? = null
+      com.example.ui.auth.onGoogleSignInClicked(
+        context = missingClientContext,
+        credentialManager = credentialManager,
+        onAuthSuccess = {},
+        onAuthError = { authError = it },
+        scope = backgroundScope,
+      )
+      assertTrue(!authError.isNullOrBlank())
+    } finally {
+      if (hadApps && com.google.firebase.FirebaseApp.getApps(context).isEmpty()) {
+        runCatching { com.google.firebase.FirebaseApp.initializeApp(context) }
+      }
+    }
+  }
 }

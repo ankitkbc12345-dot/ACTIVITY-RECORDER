@@ -13,8 +13,6 @@ import com.example.data.preferences.CloudSyncSchedule
 import com.example.data.preferences.SettingsStore
 import com.example.monitoring.CallLogSyncJobService
 import com.example.monitoring.DateTimeUtils
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
 import java.util.Calendar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -79,7 +77,8 @@ object CloudSyncScheduler {
 
   suspend fun runSyncNow(context: Context, summaryNote: String? = null): Result<CloudSyncUploadSummary> {
     val appCtx = context.applicationContext
-    if (Firebase.auth.currentUser == null) {
+    val user = com.example.ui.auth.safeCurrentFirebaseUser(appCtx)
+    if (user == null) {
       return Result.failure(IllegalStateException("Google Sign-In required"))
     }
     val settingsStore = SettingsStore(appCtx)

@@ -19,8 +19,7 @@ import androidx.credentials.CredentialManager
 import com.example.ui.MainViewModel
 import com.example.ui.auth.GoogleSignInButton
 import com.example.ui.auth.attemptAutoSignIn
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
+import com.example.ui.auth.safeCurrentFirebaseUser
 
 @Composable
 fun GoogleAuthGateScreen(
@@ -34,7 +33,7 @@ fun GoogleAuthGateScreen(
   var isCheckingAutoAuth by remember { mutableStateOf(true) }
 
   LaunchedEffect(Unit) {
-    if (runCatching { Firebase.auth.currentUser }.getOrNull() != null) {
+    if (safeCurrentFirebaseUser(context) != null) {
       viewModel.refreshGoogleUser()
       onAuthSuccess()
       return@LaunchedEffect

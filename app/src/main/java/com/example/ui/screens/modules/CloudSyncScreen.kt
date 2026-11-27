@@ -81,6 +81,8 @@ import com.example.data.remote.FirestoreSyncRepository
 import com.example.data.remote.formatUserFacingFirestoreError
 import com.example.ui.auth.GoogleSignInButton
 import com.example.ui.auth.attemptAutoSignIn
+import com.example.ui.auth.isFirebaseInitialized
+import com.example.ui.auth.safeCurrentFirebaseUser
 import com.example.ui.auth.signOutFromGoogle
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
@@ -276,20 +278,25 @@ fun CloudSyncScreen(
   val scope = rememberCoroutineScope()
   val credentialManager = remember(context) { CredentialManager.create(context) }
 
-  var currentUser by remember { mutableStateOf(Firebase.auth.currentUser) }
+  val firebaseReady = remember(context) { isFirebaseInitialized(context) }
+  var currentUser by remember { mutableStateOf(safeCurrentFirebaseUser(context)) }
 
-  DisposableEffect(Unit) {
-    val listener = FirebaseAuth.AuthStateListener { auth -> currentUser = auth.currentUser }
-    Firebase.auth.addAuthStateListener(listener)
-    onDispose { Firebase.auth.removeAuthStateListener(listener) }
+  DisposableEffect(firebaseReady) {
+    if (!firebaseReady) {
+      onDispose {}
+    } else {
+      val listener = FirebaseAuth.AuthStateListener { auth -> currentUser = auth.currentUser }
+      runCatching { Firebase.auth.addAuthStateListener(listener) }
+      onDispose { runCatching { Firebase.auth.removeAuthStateListener(listener) } }
+    }
   }
 
-  LaunchedEffect(Unit) {
-    if (Firebase.auth.currentUser == null) {
+  LaunchedEffect(firebaseReady) {
+    if (firebaseReady && safeCurrentFirebaseUser(context) == null) {
       attemptAutoSignIn(
         context = context,
         credentialManager = credentialManager,
-        onAuthSuccess = { currentUser = Firebase.auth.currentUser },
+        onAuthSuccess = { currentUser = safeCurrentFirebaseUser(context) },
         onUnauthenticated = {},
         scope = scope,
       )
@@ -298,7 +305,7 @@ fun CloudSyncScreen(
 
   if (currentUser == null) {
     CloudSyncAuthGateScreen(
-      onAuthSuccess = { currentUser = Firebase.auth.currentUser },
+      onAuthSuccess = { currentUser = safeCurrentFirebaseUser(context) },
       onBack = onBack,
     )
   } else {

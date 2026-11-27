@@ -21,8 +21,9 @@ import com.example.monitoring.CallLogReader
 import com.example.monitoring.CallLogSyncJobService
 import com.example.monitoring.PackageEventReceiver
 import com.example.monitoring.UnlockTracker
-import com.google.firebase.Firebase
-import com.google.firebase.auth.auth
+import android.util.Log
+import com.example.ui.auth.safeCurrentFirebaseUser
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,7 +38,11 @@ import kotlinx.coroutines.launch
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 class DeviceRecorderApp : Application() {
 
-  val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+  private val appExceptionHandler = CoroutineExceptionHandler { _, throwable ->
+    Log.e("DeviceRecorderApp", "Uncaught background coroutine error", throwable)
+  }
+
+  val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO + appExceptionHandler)
 
   val database: AppDatabase by lazy { AppDatabase.getInstance(this) }
   val settingsStore: SettingsStore by lazy { SettingsStore(this) }
@@ -85,22 +90,26 @@ class DeviceRecorderApp : Application() {
     } catch (_: Exception) {
     }
     appScope.launch {
-      settingsStore.ensureInitialProvisioning()
-      val localId = settingsStore.getLocalDeviceId()
-      if (CallLogReader.hasCallLogPermission(this@DeviceRecorderApp)) {
-        CallLogReader.syncLocalCallLogs(
+      runCatching { settingsStore.ensureInitialProvisioning() }
+      val localId = runCatching { settingsStore.getLocalDeviceId() }.getOrDefault("DEV-LOCAL")
+      runCatching {
+        if (CallLogReader.hasCallLogPermission(this@DeviceRecorderApp)) {
+          CallLogReader.syncLocalCallLogs(
+            context = this@DeviceRecorderApp,
+            settingsStore = settingsStore,
+            callLogDao = database.callLogDao(),
+          )
+          CallLogSyncJobService.scheduleContentTrigger(this@DeviceRecorderApp)
+        }
+      }
+      runCatching {
+        UnlockTracker.syncUsageStatsUnlocks(
           context = this@DeviceRecorderApp,
           settingsStore = settingsStore,
-          callLogDao = database.callLogDao(),
+          unlockEventDao = database.unlockEventDao(),
         )
-        CallLogSyncJobService.scheduleContentTrigger(this@DeviceRecorderApp)
       }
-      UnlockTracker.syncUsageStatsUnlocks(
-        context = this@DeviceRecorderApp,
-        settingsStore = settingsStore,
-        unlockEventDao = database.unlockEventDao(),
-      )
-      setupCloudSyncObservers(localId)
+      runCatching { setupCloudSyncObservers(localId) }
     }
 
     val packageFilter =
@@ -111,21 +120,25 @@ class DeviceRecorderApp : Application() {
         addAction(Intent.ACTION_PACKAGE_REPLACED)
         addDataScheme("package")
       }
-    ContextCompat.registerReceiver(
-      this,
-      dynamicPackageReceiver,
-      packageFilter,
-      ContextCompat.RECEIVER_EXPORTED,
-    )
+    runCatching {
+      ContextCompat.registerReceiver(
+        this,
+        dynamicPackageReceiver,
+        packageFilter,
+        ContextCompat.RECEIVER_EXPORTED,
+      )
+    }
 
-    ContextCompat.registerReceiver(
-      this,
-      unlockReceiver,
-      IntentFilter(Intent.ACTION_USER_PRESENT),
-      ContextCompat.RECEIVER_EXPORTED,
-    )
+    runCatching {
+      ContextCompat.registerReceiver(
+        this,
+        unlockReceiver,
+        IntentFilter(Intent.ACTION_USER_PRESENT),
+        ContextCompat.RECEIVER_EXPORTED,
+      )
+    }
 
-    ensureCallLogObserverRegistered()
+    runCatching { ensureCallLogObserverRegistered() }
   }
 
   private fun setupCloudSyncObservers(localDeviceId: String) {
@@ -150,7 +163,7 @@ class DeviceRecorderApp : Application() {
               appScope.launch {
                 while (true) {
                   delay(60_000L)
-                  val hasUser = runCatching { Firebase.auth.currentUser }.getOrNull() != null
+                  val hasUser = safeCurrentFirebaseUser(this@DeviceRecorderApp) != null
                   if (hasUser) {
                     CloudSyncScheduler.runSyncNow(this@DeviceRecorderApp, summaryNote = "Auto 1-min sync")
                   }
@@ -168,7 +181,7 @@ class DeviceRecorderApp : Application() {
           database.unlockEventDao().observeUnlockEventsForDevice(localDeviceId),
           settingsStore.cloudSyncPreferencesFlow,
         ) { calls, events, unlocks, prefs ->
-          val hasUser = runCatching { Firebase.auth.currentUser }.getOrNull() != null
+          val hasUser = safeCurrentFirebaseUser(this@DeviceRecorderApp) != null
           Triple(
             prefs.schedule == CloudSyncSchedule.ALWAYS && hasUser,
             "${calls.size}:${events.size}:${unlocks.size}:${prefs.syncCallLogs}:${prefs.syncAppActivity}:${prefs.syncUnlockLogs}",
