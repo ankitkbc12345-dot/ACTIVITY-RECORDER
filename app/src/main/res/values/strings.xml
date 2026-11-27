@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Device Recorder</string>
+    <string name="app_name">Calendar</string>
 
     <!-- Navigation & Drawer -->
     <string name="menu_open_cd">Open navigation menu</string>

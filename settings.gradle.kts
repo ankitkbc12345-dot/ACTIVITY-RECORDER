@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Device Recorder"
+rootProject.name = "Calendar"
 
 include(":app")
