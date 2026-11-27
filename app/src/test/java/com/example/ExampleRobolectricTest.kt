@@ -13,6 +13,7 @@ import com.example.data.preferences.LoginOutcome
 import com.example.data.preferences.PasswordChangeOutcome
 import com.example.data.preferences.SettingsStore
 import com.example.security.CryptoManager
+import com.example.ui.auth.googleWebClientId
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.json.JSONObject
@@ -364,5 +365,12 @@ class ExampleRobolectricTest {
     } finally {
       db.close()
     }
+  }
+
+  @Test
+  fun `googleWebClientId resolves at runtime without compile-time R dependency`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val clientId = context.googleWebClientId()
+    assertTrue(clientId == null || clientId.contains(".apps.googleusercontent.com"))
   }
 }

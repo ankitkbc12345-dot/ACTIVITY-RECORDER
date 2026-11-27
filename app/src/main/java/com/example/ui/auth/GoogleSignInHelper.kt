@@ -1,5 +1,6 @@
 package com.example.ui.auth
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -51,12 +52,13 @@ tailrec fun Context.findActivity(): Activity? =
     else -> null
   }
 
-private fun Context.googleWebClientId(): String? {
+@SuppressLint("DiscouragedApi")
+internal fun Context.googleWebClientId(): String? {
   return try {
-    getString(com.example.R.string.default_web_client_id).takeIf { it.isNotBlank() }
-  } catch (_: Exception) {
     val id = resources.getIdentifier("default_web_client_id", "string", packageName)
-    if (id != 0) getString(id) else null
+    if (id != 0) getString(id).takeIf { it.isNotBlank() } else null
+  } catch (_: Exception) {
+    null
   }
 }
 

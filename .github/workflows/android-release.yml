@@ -57,6 +57,15 @@ jobs:
           PASS_VAL="${INITIAL_ADMIN_PASSWORD_SECRET:-ankitkbc12345}"
           printf 'ADMIN_ID=%s\nINITIAL_ADMIN_PASSWORD=%s\n' "$ADMIN_VAL" "$PASS_VAL" > .env
 
+      - name: Restore optional google-services.json from secret
+        env:
+          GOOGLE_SERVICES_JSON_SECRET: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ ! -f app/google-services.json ] && [ -n "$GOOGLE_SERVICES_JSON_SECRET" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON_SECRET" > app/google-services.json
+            echo "Restored app/google-services.json from GitHub secret."
+          fi
+
       - name: Build debug APK
         run: |
           gradle :app:assembleDebug \
