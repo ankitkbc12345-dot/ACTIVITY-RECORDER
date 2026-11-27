@@ -53,13 +53,14 @@ fun AdminDashboardScreen(
   val batteryStatus by viewModel.batteryStatus.collectAsStateWithLifecycle()
   val cloudPrefs by viewModel.cloudSyncPreferences.collectAsStateWithLifecycle()
 
-  val currentUser = Firebase.auth.currentUser
-  val currentUserName = currentUser?.displayName?.takeIf { it.isNotBlank() } ?: "Google Account"
-  val currentUserEmail = currentUser?.email?.takeIf { it.isNotBlank() } ?: "account@gmail.com"
+  val currentUser = runCatching { Firebase.auth.currentUser }.getOrNull()
+  val currentUserName = currentUser?.displayName?.takeIf { it.isNotBlank() } ?: "Guest User"
+  val currentUserEmail = currentUser?.email?.takeIf { it.isNotBlank() } ?: "Guest Mode"
   val deviceModelName = CryptoManager.getLocalDeviceModel()
 
-  // Strict Point 9, 12, 14:
+  // Strict Point 9, 12, 14 & Step 3:
   // - Removed Device Connection Management (duplicate of Device Selection)
+  // - Removed Remote Application Management (duplicate of Application Activity Records uninstall)
   // - Removed Backup & Restore
   // - Removed Theme Mode (now in navigation drawer)
   // - Removed Language Settings (now in navigation drawer)
@@ -75,7 +76,7 @@ fun AdminDashboardScreen(
       ),
       DashboardModuleItem(
         R.string.module_app_activity,
-        "Installed inventory & events",
+        "Installed inventory, events & uninstall",
         Icons.Default.Apps,
         NavRoutes.APP_ACTIVITY,
         "mod_app_activity",
@@ -100,13 +101,6 @@ fun AdminDashboardScreen(
         Icons.Default.FiberManualRecord,
         NavRoutes.RECORDING_CONTROL,
         "mod_recording_control",
-      ),
-      DashboardModuleItem(
-        R.string.module_remote_apps,
-        "Authorized device uninstall",
-        Icons.Default.SettingsRemote,
-        NavRoutes.REMOTE_APPS,
-        "mod_remote_apps",
       ),
       DashboardModuleItem(
         R.string.module_export_pdf,

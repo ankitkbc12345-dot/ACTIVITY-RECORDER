@@ -7,9 +7,10 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,13 +20,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Android
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -39,7 +44,7 @@ import com.example.monitoring.DateTimeUtils
 import com.example.monitoring.PackageInventoryScanner
 import com.example.ui.MainViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun AppActivityRecordsScreen(
   viewModel: MainViewModel,
@@ -61,27 +66,153 @@ fun AppActivityRecordsScreen(
   var sortAscending by remember { mutableStateOf(false) }
   var selectedAppForHistory by remember { mutableStateOf<String?>(null) }
 
+  // Selective delete state for both tabs
+  var selectionMode by remember { mutableStateOf(false) }
+  var selectedInvIds by remember { mutableStateOf(setOf<String>()) }
+  var selectedEventIds by remember { mutableStateOf(setOf<Long>()) }
+  var showConfirmDeleteDialog by remember { mutableStateOf(false) }
+
+  val filteredInv =
+    remember(inventory, searchQuery, sourceFilter, sortAscending) {
+      inventory
+        .filter { item ->
+          val matchesQ =
+            searchQuery.isBlank() ||
+              item.appName.contains(searchQuery, ignoreCase = true) ||
+              item.packageName.contains(searchQuery, ignoreCase = true) ||
+              item.installerLabel.contains(searchQuery, ignoreCase = true)
+          val matchesSource =
+            when (sourceFilter) {
+              "PLAY" -> item.installerLabel == "Google Play Store"
+              "KNOWN" -> item.installerLabel.startsWith("Known") || (item.installerLabel != "Google Play Store" && item.installerLabel != "Unknown")
+              "UNKNOWN" -> item.installerLabel == "Unknown"
+              else -> true
+            }
+          matchesQ && matchesSource
+        }
+        .let { list ->
+          if (sortAscending) list.sortedBy { it.appName.lowercase() }
+          else list.sortedByDescending { it.firstInstallTimeMillis ?: 0L }
+        }
+    }
+
+  val filteredEvents =
+    remember(events, searchQuery, eventFilter, sourceFilter, dateFilter, sortAscending) {
+      events
+        .filter { ev ->
+          val matchesQ =
+            searchQuery.isBlank() ||
+              ev.appName.contains(searchQuery, ignoreCase = true) ||
+              ev.packageName.contains(searchQuery, ignoreCase = true) ||
+              ev.installerLabel.contains(searchQuery, ignoreCase = true)
+          val matchesType = eventFilter == "ALL" || ev.eventType == eventFilter
+          val matchesDate = dateFilter.isBlank() || ev.eventDate.contains(dateFilter.trim())
+          val matchesSource =
+            when (sourceFilter) {
+              "PLAY" -> ev.installerLabel == "Google Play Store"
+              "KNOWN" -> ev.installerLabel != "Google Play Store" && ev.installerLabel != "Unknown"
+              "UNKNOWN" -> ev.installerLabel == "Unknown"
+              else -> true
+            }
+          matchesQ && matchesType && matchesDate && matchesSource
+        }
+        .let { list ->
+          if (sortAscending) list.sortedBy { it.timestampMillis }
+          else list.sortedByDescending { it.timestampMillis }
+        }
+    }
+
+  val currentSelectedCount = if (selectedTab == 0) selectedInvIds.size else selectedEventIds.size
+
   Scaffold(
     topBar = {
-      TopAppBar(
-        title = { Text(stringResource(R.string.module_app_activity)) },
-        navigationIcon = {
-          IconButton(onClick = onBack, modifier = Modifier.testTag("app_activity_back")) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.nav_back_cd))
-          }
-        },
-        actions = {
-          if (isLocal) {
+      if (selectionMode) {
+        TopAppBar(
+          title = { Text("$currentSelectedCount selected") },
+          navigationIcon = {
             IconButton(
-              onClick = { viewModel.refreshLocalInventory() },
-              enabled = !isScanning,
-              modifier = Modifier.testTag("refresh_inventory_button"),
+              onClick = {
+                selectionMode = false
+                selectedInvIds = emptySet()
+                selectedEventIds = emptySet()
+              },
+              modifier = Modifier.testTag("app_activity_cancel_selection"),
             ) {
-              Icon(Icons.Default.Refresh, contentDescription = "Refresh Inventory")
+              Icon(Icons.Default.Close, contentDescription = "Cancel selection")
             }
-          }
-        },
-      )
+          },
+          actions = {
+            if (selectedTab == 0) {
+              val allIds = filteredInv.mapTo(HashSet()) { it.id }
+              val allSelected = allIds.isNotEmpty() && allIds.all { it in selectedInvIds }
+              IconButton(
+                onClick = {
+                  selectedInvIds = if (allSelected) emptySet() else allIds
+                },
+                modifier = Modifier.testTag("app_activity_select_all"),
+              ) {
+                Icon(Icons.Default.SelectAll, contentDescription = "Select All")
+              }
+            } else {
+              val allIds = filteredEvents.mapTo(HashSet()) { it.id }
+              val allSelected = allIds.isNotEmpty() && allIds.all { it in selectedEventIds }
+              IconButton(
+                onClick = {
+                  selectedEventIds = if (allSelected) emptySet() else allIds
+                },
+                modifier = Modifier.testTag("app_activity_select_all"),
+              ) {
+                Icon(Icons.Default.SelectAll, contentDescription = "Select All")
+              }
+            }
+            IconButton(
+              onClick = {
+                if (currentSelectedCount > 0) showConfirmDeleteDialog = true
+              },
+              enabled = currentSelectedCount > 0,
+              modifier = Modifier.testTag("app_activity_delete_selected"),
+            ) {
+              Icon(
+                Icons.Default.DeleteForever,
+                contentDescription = "Delete selected records",
+                tint = if (currentSelectedCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+          },
+        )
+      } else {
+        TopAppBar(
+          title = { Text(stringResource(R.string.module_app_activity)) },
+          navigationIcon = {
+            IconButton(onClick = onBack, modifier = Modifier.testTag("app_activity_back")) {
+              Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.nav_back_cd))
+            }
+          },
+          actions = {
+            if ((selectedTab == 0 && inventory.isNotEmpty()) || (selectedTab == 1 && events.isNotEmpty())) {
+              IconButton(
+                onClick = {
+                  selectionMode = true
+                  selectedInvIds = emptySet()
+                  selectedEventIds = emptySet()
+                },
+                modifier = Modifier.testTag("app_activity_select_mode"),
+              ) {
+                Icon(Icons.Default.Checklist, contentDescription = "Select records to delete")
+              }
+            }
+            if (isLocal) {
+              IconButton(
+                onClick = { viewModel.refreshLocalInventory() },
+                enabled = !isScanning,
+                modifier = Modifier.testTag("refresh_inventory_button"),
+              ) {
+                Icon(Icons.Default.Refresh, contentDescription = "Refresh Inventory")
+              }
+            }
+          },
+        )
+      }
     }
   ) { innerPadding ->
     Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
@@ -107,13 +238,23 @@ fun AppActivityRecordsScreen(
       TabRow(selectedTabIndex = selectedTab) {
         Tab(
           selected = selectedTab == 0,
-          onClick = { selectedTab = 0 },
+          onClick = {
+            selectedTab = 0
+            selectionMode = false
+            selectedInvIds = emptySet()
+            selectedEventIds = emptySet()
+          },
           text = { Text("Inventory ($totalApps)") },
           modifier = Modifier.testTag("tab_inventory"),
         )
         Tab(
           selected = selectedTab == 1,
-          onClick = { selectedTab = 1 },
+          onClick = {
+            selectedTab = 1
+            selectionMode = false
+            selectedInvIds = emptySet()
+            selectedEventIds = emptySet()
+          },
           text = { Text("Activity History (${events.size})") },
           modifier = Modifier.testTag("tab_events"),
         )
@@ -171,30 +312,6 @@ fun AppActivityRecordsScreen(
       }
 
       if (selectedTab == 0) {
-        val filteredInv =
-          remember(inventory, searchQuery, sourceFilter, sortAscending) {
-            inventory
-              .filter { item ->
-                val matchesQ =
-                  searchQuery.isBlank() ||
-                    item.appName.contains(searchQuery, ignoreCase = true) ||
-                    item.packageName.contains(searchQuery, ignoreCase = true) ||
-                    item.installerLabel.contains(searchQuery, ignoreCase = true)
-                val matchesSource =
-                  when (sourceFilter) {
-                    "PLAY" -> item.installerLabel == "Google Play Store"
-                    "KNOWN" -> item.installerLabel.startsWith("Known") || (item.installerLabel != "Google Play Store" && item.installerLabel != "Unknown")
-                    "UNKNOWN" -> item.installerLabel == "Unknown"
-                    else -> true
-                  }
-                matchesQ && matchesSource
-              }
-              .let { list ->
-                if (sortAscending) list.sortedBy { it.appName.lowercase() }
-                else list.sortedByDescending { it.firstInstallTimeMillis ?: 0L }
-              }
-          }
-
         LazyColumn(
           contentPadding = PaddingValues(16.dp),
           verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -210,6 +327,7 @@ fun AppActivityRecordsScreen(
             }
           } else {
             items(filteredInv, key = { it.id }) { item ->
+              val isSelected = item.id in selectedInvIds
               val iconDrawable =
                 remember(item.packageName, isLocal) {
                   if (isLocal) PackageInventoryScanner.loadAppIcon(context, item.packageName) else null
@@ -218,7 +336,24 @@ fun AppActivityRecordsScreen(
                 item = item,
                 iconDrawable = iconDrawable,
                 isLocal = isLocal,
-                onClick = { selectedAppForHistory = item.packageName },
+                selectionMode = selectionMode,
+                isSelected = isSelected,
+                onToggleSelect = {
+                  selectedInvIds =
+                    if (isSelected) selectedInvIds - item.id else selectedInvIds + item.id
+                },
+                onLongPress = {
+                  selectionMode = true
+                  selectedInvIds = selectedInvIds + item.id
+                },
+                onClick = {
+                  if (selectionMode) {
+                    selectedInvIds =
+                      if (isSelected) selectedInvIds - item.id else selectedInvIds + item.id
+                  } else {
+                    selectedAppForHistory = item.packageName
+                  }
+                },
                 onUninstall = {
                   try {
                     val uninstallIntent = Intent(Intent.ACTION_DELETE).apply {
@@ -235,32 +370,6 @@ fun AppActivityRecordsScreen(
           }
         }
       } else {
-        val filteredEvents =
-          remember(events, searchQuery, eventFilter, sourceFilter, dateFilter, sortAscending) {
-            events
-              .filter { ev ->
-                val matchesQ =
-                  searchQuery.isBlank() ||
-                    ev.appName.contains(searchQuery, ignoreCase = true) ||
-                    ev.packageName.contains(searchQuery, ignoreCase = true) ||
-                    ev.installerLabel.contains(searchQuery, ignoreCase = true)
-                val matchesType = eventFilter == "ALL" || ev.eventType == eventFilter
-                val matchesDate = dateFilter.isBlank() || ev.eventDate.contains(dateFilter.trim())
-                val matchesSource =
-                  when (sourceFilter) {
-                    "PLAY" -> ev.installerLabel == "Google Play Store"
-                    "KNOWN" -> ev.installerLabel != "Google Play Store" && ev.installerLabel != "Unknown"
-                    "UNKNOWN" -> ev.installerLabel == "Unknown"
-                    else -> true
-                  }
-                matchesQ && matchesType && matchesDate && matchesSource
-              }
-              .let { list ->
-                if (sortAscending) list.sortedBy { it.timestampMillis }
-                else list.sortedByDescending { it.timestampMillis }
-              }
-          }
-
         LazyColumn(
           contentPadding = PaddingValues(16.dp),
           verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -276,7 +385,32 @@ fun AppActivityRecordsScreen(
             }
           } else {
             items(filteredEvents, key = { it.id }) { ev ->
-              ActivityEventRowCard(ev) { selectedAppForHistory = ev.packageName }
+              val isSelected = ev.id in selectedEventIds
+              ActivityEventRowCard(
+                ev = ev,
+                selectionMode = selectionMode,
+                isSelected = isSelected,
+                onToggleSelect = {
+                  selectedEventIds =
+                    if (isSelected) selectedEventIds - ev.id else selectedEventIds + ev.id
+                },
+                onLongPress = {
+                  selectionMode = true
+                  selectedEventIds = selectedEventIds + ev.id
+                },
+                onDeleteSingle = {
+                  selectedEventIds = setOf(ev.id)
+                  showConfirmDeleteDialog = true
+                },
+                onClick = {
+                  if (selectionMode) {
+                    selectedEventIds =
+                      if (isSelected) selectedEventIds - ev.id else selectedEventIds + ev.id
+                  } else {
+                    selectedAppForHistory = ev.packageName
+                  }
+                },
+              )
             }
           }
         }
@@ -341,6 +475,38 @@ fun AppActivityRecordsScreen(
       },
     )
   }
+
+  if (showConfirmDeleteDialog) {
+    val count = if (selectedTab == 0) selectedInvIds.size else selectedEventIds.size
+    val label = if (selectedTab == 0) "tracked app snapshot record(s)" else "application activity event(s)"
+    AlertDialog(
+      onDismissRequest = { showConfirmDeleteDialog = false },
+      title = { Text("Delete Selected Records") },
+      text = { Text("Are you sure you want to delete $count $label from local storage?") },
+      confirmButton = {
+        Button(
+          colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+          onClick = {
+            if (selectedTab == 0) {
+              viewModel.deleteInventorySnapshotsByIds(selectedInvIds)
+              selectedInvIds = emptySet()
+            } else {
+              viewModel.deleteActivityEventsByIds(selectedEventIds)
+              selectedEventIds = emptySet()
+            }
+            selectionMode = false
+            showConfirmDeleteDialog = false
+          },
+          modifier = Modifier.testTag("confirm_delete_app_activity"),
+        ) {
+          Text("Delete")
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { showConfirmDeleteDialog = false }) { Text("Cancel") }
+      },
+    )
+  }
 }
 
 @Composable
@@ -357,11 +523,16 @@ private fun StatChip(label: String, value: String, modifier: Modifier = Modifier
   }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun InventoryRowCard(
   item: AppInventorySnapshotEntity,
   iconDrawable: Drawable?,
   isLocal: Boolean,
+  selectionMode: Boolean,
+  isSelected: Boolean,
+  onToggleSelect: () -> Unit,
+  onLongPress: () -> Unit,
   onClick: () -> Unit,
   onUninstall: () -> Unit,
 ) {
@@ -371,18 +542,30 @@ private fun InventoryRowCard(
     }
   Surface(
     shape = RoundedCornerShape(16.dp),
-    color = MaterialTheme.colorScheme.surface,
+    color =
+      if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+      else MaterialTheme.colorScheme.surface,
     modifier =
       Modifier.fillMaxWidth()
-        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
-        .clickable(onClick = onClick),
+        .clip(RoundedCornerShape(16.dp))
+        .border(
+          width = if (isSelected) 1.5.dp else 1.dp,
+          color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+          shape = RoundedCornerShape(16.dp),
+        )
+        .combinedClickable(onClick = onClick, onLongClick = onLongPress),
   ) {
     Row(
       modifier = Modifier.padding(14.dp),
       horizontalArrangement = Arrangement.spacedBy(12.dp),
       verticalAlignment = Alignment.CenterVertically,
     ) {
-      if (bitmap != null) {
+      if (selectionMode) {
+        Checkbox(
+          checked = isSelected,
+          onCheckedChange = { onToggleSelect() },
+        )
+      } else if (bitmap != null) {
         Image(
           bitmap = bitmap.asImageBitmap(),
           contentDescription = item.appName,
@@ -407,7 +590,7 @@ private fun InventoryRowCard(
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
-      if (isLocal && item.isInstalled) {
+      if (!selectionMode && isLocal && item.isInstalled) {
         IconButton(
           onClick = onUninstall,
           modifier = Modifier.size(40.dp).testTag("row_uninstall_${item.packageName}"),
@@ -423,36 +606,76 @@ private fun InventoryRowCard(
   }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ActivityEventRowCard(ev: AppActivityEventEntity, onClick: () -> Unit) {
+private fun ActivityEventRowCard(
+  ev: AppActivityEventEntity,
+  selectionMode: Boolean,
+  isSelected: Boolean,
+  onToggleSelect: () -> Unit,
+  onLongPress: () -> Unit,
+  onDeleteSingle: () -> Unit,
+  onClick: () -> Unit,
+) {
   Surface(
     shape = RoundedCornerShape(16.dp),
-    color = MaterialTheme.colorScheme.surface,
+    color =
+      if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+      else MaterialTheme.colorScheme.surface,
     modifier =
       Modifier.fillMaxWidth()
-        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
-        .clickable(onClick = onClick),
+        .clip(RoundedCornerShape(16.dp))
+        .border(
+          width = if (isSelected) 1.5.dp else 1.dp,
+          color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+          shape = RoundedCornerShape(16.dp),
+        )
+        .combinedClickable(onClick = onClick, onLongClick = onLongPress),
   ) {
-    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-      Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(ev.appName, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-        Text(
-          ev.eventType,
-          style = MaterialTheme.typography.labelSmall,
-          color =
-            when (ev.eventType) {
-              "INSTALLED" -> MaterialTheme.colorScheme.secondary
-              "UNINSTALLED" -> MaterialTheme.colorScheme.error
-              else -> MaterialTheme.colorScheme.primary
-            },
+    Row(
+      modifier = Modifier.padding(14.dp),
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      if (selectionMode) {
+        Checkbox(
+          checked = isSelected,
+          onCheckedChange = { onToggleSelect() },
         )
       }
-      Text(ev.packageName, style = MaterialTheme.typography.labelSmall)
-      Text(
-        "${ev.eventDate} at ${ev.eventTime} • Source: ${ev.installerLabel}",
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-      )
+      Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+          Text(ev.appName, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+          Text(
+            ev.eventType,
+            style = MaterialTheme.typography.labelSmall,
+            color =
+              when (ev.eventType) {
+                "INSTALLED" -> MaterialTheme.colorScheme.secondary
+                "UNINSTALLED" -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.primary
+              },
+          )
+        }
+        Text(ev.packageName, style = MaterialTheme.typography.labelSmall)
+        Text(
+          "${ev.eventDate} at ${ev.eventTime} • Source: ${ev.installerLabel}",
+          style = MaterialTheme.typography.bodyMedium,
+          color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+      }
+      if (!selectionMode) {
+        IconButton(
+          onClick = onDeleteSingle,
+          modifier = Modifier.size(36.dp).testTag("delete_event_${ev.id}"),
+        ) {
+          Icon(
+            imageVector = Icons.Default.DeleteForever,
+            contentDescription = "Delete activity event",
+            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+          )
+        }
+      }
     }
   }
 }
@@ -474,7 +697,8 @@ private fun drawableToBitmap(drawable: Drawable): Bitmap? {
     val canvas = Canvas(bmp)
     drawable.setBounds(0, 0, canvas.width, canvas.height)
     drawable.draw(canvas)
-    bmp  } catch (_: Throwable) {
+    bmp
+  } catch (_: Throwable) {
     null
   }
 }

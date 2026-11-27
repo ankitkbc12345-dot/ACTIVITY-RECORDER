@@ -29,6 +29,9 @@ interface AppActivityDao {
   @Query("DELETE FROM app_activity_events WHERE deviceId = :deviceId")
   suspend fun deleteEventsForDevice(deviceId: String): Int
 
+  @Query("DELETE FROM app_activity_events WHERE id IN (:ids)")
+  suspend fun deleteEventsByIds(ids: List<Long>): Int
+
   @Query("SELECT COUNT(*) FROM app_activity_events WHERE deviceId = :deviceId")
   fun observeEventCount(deviceId: String): Flow<Int>
 
@@ -56,6 +59,9 @@ interface AppInventoryDao {
   @Query("DELETE FROM app_inventory_snapshots WHERE deviceId = :deviceId")
   suspend fun deleteInventoryForDevice(deviceId: String): Int
 
+  @Query("DELETE FROM app_inventory_snapshots WHERE id IN (:ids)")
+  suspend fun deleteInventoryByIds(ids: List<String>): Int
+
   @Query("SELECT COUNT(*) FROM app_inventory_snapshots")
   suspend fun getTotalInventoryCount(): Int
 }
@@ -79,6 +85,9 @@ interface CallLogDao {
 
   @Query("DELETE FROM call_logs WHERE deviceId = :deviceId")
   suspend fun deleteCallLogsForDevice(deviceId: String): Int
+
+  @Query("DELETE FROM call_logs WHERE id IN (:ids)")
+  suspend fun deleteCallLogsByIds(ids: List<String>): Int
 
   @Query("SELECT COUNT(*) FROM call_logs")
   suspend fun getTotalCallLogCount(): Int
@@ -106,6 +115,9 @@ interface UnlockEventDao {
 
   @Query("DELETE FROM device_unlock_events WHERE deviceId = :deviceId")
   suspend fun deleteUnlockEventsForDevice(deviceId: String): Int
+
+  @Query("DELETE FROM device_unlock_events WHERE id IN (:ids)")
+  suspend fun deleteUnlockEventsByIds(ids: List<String>): Int
 
   @Query("SELECT COUNT(*) FROM device_unlock_events")
   suspend fun getTotalUnlockEventCount(): Int

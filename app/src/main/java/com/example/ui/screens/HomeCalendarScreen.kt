@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.example.BuildConfig
 import com.example.R
 import com.example.connectivity.UpdateCheckResult
 import com.example.ui.HomeUpdateFeedback
@@ -85,10 +86,29 @@ fun HomeCalendarScreen(
 
   val languageCode by viewModel.languageCode.collectAsStateWithLifecycle()
   val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-  val currentUser = Firebase.auth.currentUser
+  val currentUser = runCatching { Firebase.auth.currentUser }.getOrNull()
   val photoUrl = currentUser?.photoUrl?.toString()
-  val displayName = currentUser?.displayName?.takeIf { it.isNotBlank() } ?: "Google Account"
-  val email = currentUser?.email?.takeIf { it.isNotBlank() } ?: "account@gmail.com"
+  val displayName = currentUser?.displayName?.takeIf { it.isNotBlank() } ?: "Guest User"
+  val email = currentUser?.email?.takeIf { it.isNotBlank() } ?: "Guest Mode"
+  var updateCheckRequested by remember { mutableStateOf(false) }
+  var showUpdatePopup by remember { mutableStateOf(false) }
+
+  LaunchedEffect(isCheckingUpdates, homeUpdateFeedback, updateCheckResult, apkDownloadState, updateCheckRequested) {
+    if (updateCheckRequested && !isCheckingUpdates) {
+      when {
+        homeUpdateFeedback is HomeUpdateFeedback.AlreadyUpdated ||
+          homeUpdateFeedback is HomeUpdateFeedback.Offline ||
+          homeUpdateFeedback is HomeUpdateFeedback.Error -> {
+          showUpdatePopup = true
+          updateCheckRequested = false
+        }
+        (updateCheckResult as? UpdateCheckResult.Checked)?.updateAvailable == true ||
+          apkDownloadState !is ApkDownloadState.Idle -> {
+          updateCheckRequested = false
+        }
+      }
+    }
+  }
 
   DisposableEffect(context) {
     val receiver =
@@ -286,12 +306,20 @@ fun HomeCalendarScreen(
 
           HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
-          // 4. Update Option
+          // 4. Update Option (Step 1: Directly checks & starts update or shows popup in-place; never opens another page)
           NavigationDrawerItem(
             label = { Text(stringResource(R.string.menu_check_updates)) },
-            icon = { Icon(Icons.Default.SystemUpdate, contentDescription = null) },
+            icon = {
+              if (isCheckingUpdates) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+              } else {
+                Icon(Icons.Default.SystemUpdate, contentDescription = null)
+              }
+            },
             selected = false,
             onClick = {
+              updateCheckRequested = true
+              showUpdatePopup = false
               scope.launch { drawerState.close() }
               onOpenCheckUpdates()
             },
@@ -394,6 +422,27 @@ fun HomeCalendarScreen(
         ) {
           val availableUpdate =
             (updateCheckResult as? UpdateCheckResult.Checked)?.takeIf { it.updateAvailable }
+
+          if (isCheckingUpdates && updateCheckRequested) {
+            Surface(
+              shape = RoundedCornerShape(14.dp),
+              color = MaterialTheme.colorScheme.secondaryContainer,
+              modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).testTag("home_update_checking_chip"),
+            ) {
+              Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+              ) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                Text(
+                  text = stringResource(R.string.update_popup_checking),
+                  style = MaterialTheme.typography.bodyMedium,
+                  color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+              }
+            }
+          }
 
           AnimatedVisibility(visible = homeUpdateFeedback !is HomeUpdateFeedback.None) {
             if (homeUpdateFeedback !is HomeUpdateFeedback.None) {
@@ -694,6 +743,57 @@ fun HomeCalendarScreen(
         }
       }
     }
+  }
+
+  if (showUpdatePopup) {
+    val popupFeedback = homeUpdateFeedback
+    AlertDialog(
+      onDismissRequest = { showUpdatePopup = false },
+      icon = {
+        when (popupFeedback) {
+          HomeUpdateFeedback.AlreadyUpdated, HomeUpdateFeedback.Updated ->
+            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = HomeUpdateSuccessGreen)
+          HomeUpdateFeedback.Offline ->
+            Icon(Icons.Default.CloudOff, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+          else ->
+            Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+        }
+      },
+      title = {
+        Text(
+          text =
+            when (popupFeedback) {
+              HomeUpdateFeedback.AlreadyUpdated -> stringResource(R.string.update_popup_uptodate_title)
+              HomeUpdateFeedback.Updated -> stringResource(R.string.update_completed_message)
+              HomeUpdateFeedback.Offline -> stringResource(R.string.menu_check_updates)
+              is HomeUpdateFeedback.Error -> stringResource(R.string.menu_check_updates)
+              HomeUpdateFeedback.None -> stringResource(R.string.update_popup_uptodate_title)
+            }
+        )
+      },
+      text = {
+        Text(
+          text =
+            when (popupFeedback) {
+              HomeUpdateFeedback.AlreadyUpdated ->
+                "${stringResource(R.string.update_already_updated)}\n${stringResource(R.string.update_popup_uptodate_desc, "v${BuildConfig.VERSION_NAME}")}"
+              HomeUpdateFeedback.Updated -> stringResource(R.string.update_completed_message)
+              HomeUpdateFeedback.Offline -> stringResource(R.string.updates_offline_status)
+              is HomeUpdateFeedback.Error -> popupFeedback.reason
+              HomeUpdateFeedback.None -> stringResource(R.string.update_popup_uptodate_desc, "v${BuildConfig.VERSION_NAME}")
+            }
+        )
+      },
+      confirmButton = {
+        Button(
+          onClick = { showUpdatePopup = false },
+          modifier = Modifier.testTag("home_update_popup_ok"),
+        ) {
+          Text(stringResource(R.string.update_popup_ok))
+        }
+      },
+      modifier = Modifier.testTag("home_update_popup_dialog"),
+    )
   }
 }
 

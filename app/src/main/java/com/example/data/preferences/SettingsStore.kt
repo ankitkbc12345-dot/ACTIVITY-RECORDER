@@ -116,6 +116,7 @@ class SettingsStore(private val context: Context) {
     val LANGUAGE_CODE = stringPreferencesKey("language_code")
     val THEME_MODE = stringPreferencesKey("theme_mode")
     val REMOTE_UNINSTALL_MODE = stringPreferencesKey("remote_uninstall_mode")
+    val GUEST_MODE = booleanPreferencesKey("guest_mode_enabled")
 
     val SIGNALING_URL_ENC = stringPreferencesKey("signaling_url_enc")
     val STUN_URI = stringPreferencesKey("stun_uri")
@@ -172,6 +173,9 @@ class SettingsStore(private val context: Context) {
 
   val remoteUninstallModeFlow: Flow<String> =
     context.dataStore.data.map { prefs -> prefs[Keys.REMOTE_UNINSTALL_MODE] ?: "MODE_B_INTERACTIVE" }
+
+  val guestModeFlow: Flow<Boolean> =
+    context.dataStore.data.map { prefs -> prefs[Keys.GUEST_MODE] ?: false }
 
   val internetConfigFlow: Flow<InternetConnectivityConfig> =
     context.dataStore.data.map { prefs ->
@@ -394,6 +398,10 @@ class SettingsStore(private val context: Context) {
 
   suspend fun setRemoteUninstallMode(mode: String) {
     context.dataStore.edit { prefs -> prefs[Keys.REMOTE_UNINSTALL_MODE] = mode }
+  }
+
+  suspend fun setGuestMode(enabled: Boolean) {
+    context.dataStore.edit { prefs -> prefs[Keys.GUEST_MODE] = enabled }
   }
 
   suspend fun saveInternetConfig(config: InternetConnectivityConfig) {

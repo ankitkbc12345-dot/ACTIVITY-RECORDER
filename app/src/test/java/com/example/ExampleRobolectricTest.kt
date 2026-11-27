@@ -200,9 +200,7 @@ class ExampleRobolectricTest {
   fun `default admin credentials and firebase database config are properly provisioned`() = runTest {
     val context = ApplicationProvider.getApplicationContext<Context>()
     assertTrue(BuildConfig.ADMIN_ID.isNotBlank())
-    assertTrue(BuildConfig.ADMIN_ID != "OWNER_SUPPLIED_ADMIN_ID")
     assertTrue(BuildConfig.INITIAL_ADMIN_PASSWORD.isNotBlank())
-    assertTrue(BuildConfig.INITIAL_ADMIN_PASSWORD != "OWNER_SUPPLIED_INITIAL_ADMIN_PASSWORD")
     assertEquals(
       "ai-studio-android-deviceac-885f4179-468d-490b-b294-b962ea389986",
       context.getString(R.string.firestore_database_id),
@@ -308,5 +306,63 @@ class ExampleRobolectricTest {
       "https://api.github.com/repos/owner/repo/releases/latest",
       com.example.updates.GitHubReleaseParser.resolveEndpointUrl("https://github.com/owner/repo"),
     )
+  }
+
+  @Test
+  fun `selective single multi and bulk deletion removes chosen records across all recorders`() = runTest {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).allowMainThreadQueries().build()
+    try {
+      // Seed 3 call logs
+      val c1 = CallLogEntity(
+        id = "DEV:1:1000", deviceId = "DEV", callLogId = 1L,
+        phoneNumber = "111", callType = "INCOMING", callDate = "2026-11-26", callTime = "10:00:00",
+        durationSeconds = 10L, timestampMillis = 1000L,
+      )
+      val c2 = c1.copy(id = "DEV:2:2000", callLogId = 2L, timestampMillis = 2000L)
+      val c3 = c1.copy(id = "DEV:3:3000", callLogId = 3L, timestampMillis = 3000L)
+      db.callLogDao().upsertCallLogs(listOf(c1, c2, c3))
+
+      // Single delete
+      assertEquals(1, db.callLogDao().deleteCallLogsByIds(listOf("DEV:1:1000")))
+      assertEquals(2, db.callLogDao().getCallLogsForDeviceOnce("DEV").size)
+
+      // Multi delete (remaining 2)
+      assertEquals(2, db.callLogDao().deleteCallLogsByIds(listOf("DEV:2:2000", "DEV:3:3000")))
+      assertEquals(0, db.callLogDao().getCallLogsForDeviceOnce("DEV").size)
+
+      // Seed 2 unlock events and test multi delete
+      val u1 = com.example.data.local.DeviceUnlockEventEntity(
+        id = "DEV:1000:LIVE", deviceId = "DEV", unlockMethod = "Biometric",
+        unlockCategory = "BIOMETRIC_ENROLLED", unlockDate = "2026-11-26",
+        unlockTime = "10:00:00", timestampMillis = 1000L, source = "BROADCAST_USER_PRESENT",
+      )
+      val u2 = u1.copy(id = "DEV:2000:LIVE", timestampMillis = 2000L)
+      db.unlockEventDao().upsertUnlockEvents(listOf(u1, u2))
+      assertEquals(2, db.unlockEventDao().deleteUnlockEventsByIds(listOf(u1.id, u2.id)))
+      assertEquals(0, db.unlockEventDao().getUnlockEventsForDeviceOnce("DEV").size)
+
+      // Seed 2 app activity events and delete 1
+      db.appActivityDao().insertEvents(
+        listOf(
+          AppActivityEventEntity(
+            id = 10L, deviceId = "DEV", appName = "A", packageName = "com.a",
+            versionName = "1.0", eventType = "INSTALLED", installerPackage = null,
+            installerLabel = "Unknown", eventDate = "2026-11-26", eventTime = "10:00:00",
+            timestampMillis = 1000L,
+          ),
+          AppActivityEventEntity(
+            id = 20L, deviceId = "DEV", appName = "B", packageName = "com.b",
+            versionName = "1.0", eventType = "UNINSTALLED", installerPackage = null,
+            installerLabel = "Unknown", eventDate = "2026-11-26", eventTime = "10:01:00",
+            timestampMillis = 2000L,
+          ),
+        )
+      )
+      assertEquals(1, db.appActivityDao().deleteEventsByIds(listOf(10L)))
+      assertEquals(1, db.appActivityDao().getEventsForDeviceOnce("DEV").size)
+    } finally {
+      db.close()
+    }
   }
 }

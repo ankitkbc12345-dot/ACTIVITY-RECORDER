@@ -91,8 +91,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   private val _googleUser = MutableStateFlow<FirebaseUser?>(runCatching { Firebase.auth.currentUser }.getOrNull())
   val googleUser: StateFlow<FirebaseUser?> = _googleUser.asStateFlow()
 
+  private val _isGuestSession = MutableStateFlow(false)
+  val isGuestSession: StateFlow<Boolean> = _isGuestSession.asStateFlow()
+
   fun refreshGoogleUser() {
-    _googleUser.value = runCatching { Firebase.auth.currentUser }.getOrNull()
+    val user = runCatching { Firebase.auth.currentUser }.getOrNull()
+    _googleUser.value = user
+    if (user != null) {
+      _isGuestSession.value = false
+      viewModelScope.launch { settingsStore.setGuestMode(false) }
+    }
+  }
+
+  fun continueAsGuest() {
+    _isGuestSession.value = true
+    viewModelScope.launch { settingsStore.setGuestMode(true) }
   }
 
   private val _localDeviceId = MutableStateFlow("DEV-LOCAL")
@@ -235,6 +248,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   init {
     viewModelScope.launch {
       settingsStore.ensureInitialProvisioning()
+      if (!_isGuestSession.value && _googleUser.value == null) {
+        _isGuestSession.value = settingsStore.guestModeFlow.first()
+      }
       val persistedLoggedIn = settingsStore.isAdminLoggedInFlow.first()
       if (!authStateExplicitlySet) {
         _isAdminAuthenticated.value = persistedLoggedIn
@@ -1085,6 +1101,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       }
       refreshStorageMetrics()
       _statusBanner.value = "Pruning completed: purged $totalDeleted record(s)."
+    }
+  }
+
+  fun deleteCallLogsByIds(ids: Collection<String>) {
+    if (ids.isEmpty()) return
+    recordUserActivity()
+    viewModelScope.launch(Dispatchers.IO) {
+      var deleted = 0
+      ids.chunked(500).forEach { chunk ->
+        deleted += db.callLogDao().deleteCallLogsByIds(chunk)
+      }
+      refreshStorageMetrics()
+      _statusBanner.value = "Deleted $deleted call log record(s)."
+    }
+  }
+
+  fun deleteActivityEventsByIds(ids: Collection<Long>) {
+    if (ids.isEmpty()) return
+    recordUserActivity()
+    viewModelScope.launch(Dispatchers.IO) {
+      var deleted = 0
+      ids.chunked(500).forEach { chunk ->
+        deleted += db.appActivityDao().deleteEventsByIds(chunk)
+      }
+      refreshStorageMetrics()
+      _statusBanner.value = "Deleted $deleted application activity event(s)."
+    }
+  }
+
+  fun deleteInventorySnapshotsByIds(ids: Collection<String>) {
+    if (ids.isEmpty()) return
+    recordUserActivity()
+    viewModelScope.launch(Dispatchers.IO) {
+      var deleted = 0
+      ids.chunked(500).forEach { chunk ->
+        deleted += db.appInventoryDao().deleteInventoryByIds(chunk)
+      }
+      refreshStorageMetrics()
+      _statusBanner.value = "Removed $deleted tracked app record(s)."
+    }
+  }
+
+  fun deleteUnlockEventsByIds(ids: Collection<String>) {
+    if (ids.isEmpty()) return
+    recordUserActivity()
+    viewModelScope.launch(Dispatchers.IO) {
+      var deleted = 0
+      ids.chunked(500).forEach { chunk ->
+        deleted += db.unlockEventDao().deleteUnlockEventsByIds(chunk)
+      }
+      refreshStorageMetrics()
+      _statusBanner.value = "Deleted $deleted screen unlock record(s)."
     }
   }
 

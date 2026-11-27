@@ -56,6 +56,7 @@ import com.example.ui.screens.modules.SecuritySettingsScreen
 import com.example.ui.screens.modules.ThemeSettingsScreen
 import com.example.ui.screens.modules.UnlockLogsScreen
 import com.example.ui.screens.rememberApkUpdateAction
+import com.example.ui.screens.rememberCircularUpdateAction
 import com.example.ui.theme.DeviceRecorderTheme
 import java.util.Locale
 
@@ -95,8 +96,10 @@ class MainActivity : ComponentActivity() {
       val isCheckingUpdates by viewModel.isCheckingUpdates.collectAsStateWithLifecycle()
       val homeUpdateFeedback by viewModel.homeUpdateFeedback.collectAsStateWithLifecycle()
       val googleUser by viewModel.googleUser.collectAsStateWithLifecycle()
+      val isGuestSession by viewModel.isGuestSession.collectAsStateWithLifecycle()
 
       val onTriggerApkUpdate = rememberApkUpdateAction(viewModel)
+      val onTriggerDirectUpdate = rememberCircularUpdateAction(viewModel)
 
       val systemDark = isSystemInDarkTheme()
       val darkTheme =
@@ -145,7 +148,7 @@ class MainActivity : ComponentActivity() {
       ) {
         ProvideSafeTextToolbar {
           DeviceRecorderTheme(darkTheme = darkTheme) {
-            if (googleUser == null) {
+            if (googleUser == null && !isGuestSession) {
               GoogleAuthGateScreen(
                 viewModel = viewModel,
                 onAuthSuccess = { viewModel.refreshGoogleUser() },
@@ -167,9 +170,7 @@ class MainActivity : ComponentActivity() {
                             if (isAuthenticated) NavRoutes.ADMIN_DASHBOARD else NavRoutes.ADMIN_LOGIN
                           navigateSingleTop(navController, target)
                         },
-                        onOpenCheckUpdates = {
-                          navigateSingleTop(navController, NavRoutes.CHECK_UPDATES)
-                        },
+                        onOpenCheckUpdates = onTriggerDirectUpdate,
                         updateCheckResult = updateCheckResult,
                         apkDownloadState = apkDownloadState,
                         isCheckingUpdates = isCheckingUpdates,

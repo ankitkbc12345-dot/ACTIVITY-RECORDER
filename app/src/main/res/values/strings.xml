@@ -18,21 +18,25 @@
     <string name="updates_installed_version">Installed Version</string>
     <string name="updates_check_button">Check Updates</string>
     <string name="updates_offline_status">Device is currently offline. Local calendar and offline recording remain active.</string>
-    <string name="updates_not_configured">आपका app अप-टू-डेट है</string>
-    <string name="update_banner_available">नया अपडेट उपलब्ध है — अपडेट करें</string>
-    <string name="updates_update_now_button">अपडेट करें</string>
-    <string name="updates_up_to_date">आपका app अप-टू-डेट है</string>
-    <string name="updates_downloading_title">अपडेट डाउनलोड हो रहा है…</string>
-    <string name="updates_permission_required">APK इंस्टॉल करने के लिए “Install unknown apps” अनुमति दें।</string>
-    <string name="updates_allow_permission_button">अनुमति दें</string>
-    <string name="updates_install_apk_button">अभी इंस्टॉल करें</string>
-    <string name="updates_retry_button">पुनः प्रयास करें</string>
-    <string name="updates_download_failed">अपडेट डाउनलोड विफल: %1$s</string>
-    <string name="updates_ready_to_install">नया अपडेट डाउनलोड हो गया है — इंस्टॉल करें</string>
-    <string name="updates_prompt_check">GitHub Release जांचने के लिए Check Updates दबाएँ।</string>
+    <string name="updates_not_configured">Your app is already up to date.</string>
+    <string name="update_banner_available">New update available — Tap to update</string>
+    <string name="updates_update_now_button">Update Now</string>
+    <string name="updates_up_to_date">Your app is already up to date.</string>
+    <string name="updates_downloading_title">Downloading update…</string>
+    <string name="updates_permission_required">Allow “Install unknown apps” permission to install the APK.</string>
+    <string name="updates_allow_permission_button">Allow Permission</string>
+    <string name="updates_install_apk_button">Install Now</string>
+    <string name="updates_retry_button">Retry</string>
+    <string name="updates_download_failed">Update download failed: %1$s</string>
+    <string name="updates_ready_to_install">Update downloaded — Ready to install</string>
+    <string name="updates_prompt_check">Tap Check Updates to inspect the latest release.</string>
     <string name="update_already_updated">Already Updated</string>
     <string name="update_completed_message">Your application has been updated.</string>
     <string name="update_circular_button_cd">Check and install app updates</string>
+    <string name="update_popup_checking">Checking for updates…</string>
+    <string name="update_popup_uptodate_title">App is Up to Date</string>
+    <string name="update_popup_uptodate_desc">You are already using the latest version (%1$s).</string>
+    <string name="update_popup_ok">OK</string>
 
     <!-- Call Log Permission Gate -->
     <string name="call_log_access_required_title">Access Required</string>

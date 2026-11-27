@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -33,7 +34,7 @@ fun GoogleAuthGateScreen(
   var isCheckingAutoAuth by remember { mutableStateOf(true) }
 
   LaunchedEffect(Unit) {
-    if (Firebase.auth.currentUser != null) {
+    if (runCatching { Firebase.auth.currentUser }.getOrNull() != null) {
       viewModel.refreshGoogleUser()
       onAuthSuccess()
       return@LaunchedEffect
@@ -140,6 +141,18 @@ fun GoogleAuthGateScreen(
               errorMessage = err
             },
           )
+        }
+
+        OutlinedButton(
+          onClick = {
+            viewModel.continueAsGuest()
+            onAuthSuccess()
+          },
+          modifier = Modifier.fillMaxWidth().height(52.dp).testTag("continue_with_guest_button"),
+        ) {
+          Icon(Icons.Default.Person, contentDescription = null)
+          Spacer(modifier = Modifier.width(8.dp))
+          Text("Continue with Guest")
         }
       }
     }
