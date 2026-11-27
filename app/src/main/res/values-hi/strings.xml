@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Device Recorder</string>
+    <string name="app_name">Calendar</string>
     <string name="menu_open_cd">नेविगेशन मेनू खोलें</string>
     <string name="menu_admin_panel">एडमिन पैनल / एडमिन डैशबोर्ड</string>
     <string name="menu_check_updates">अपडेट जांचें</string>

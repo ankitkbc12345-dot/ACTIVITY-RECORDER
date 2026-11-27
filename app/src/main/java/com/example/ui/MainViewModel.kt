@@ -754,7 +754,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     if (appUpdateManager.canInstallUnknownApps()) {
       _apkDownloadState.value = ApkDownloadState.ReadyToInstall(apkFile.absolutePath, versionLabel)
       _homeUpdateFeedback.value = HomeUpdateFeedback.Updated
-      onLaunchInstall(appUpdateManager.createInstallApkIntent(apkFile))
+      val sessionResult = appUpdateManager.installViaPackageInstaller(apkFile)
+      if (sessionResult.isFailure) {
+        onLaunchInstall(appUpdateManager.createInstallApkIntent(apkFile))
+      }
     } else {
       _apkDownloadState.value =
         ApkDownloadState.PermissionRequired(apkFile.absolutePath, versionLabel)
@@ -774,7 +777,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       _apkDownloadState.value =
         ApkDownloadState.ReadyToInstall(state.apkFilePath, state.versionLabel)
       _homeUpdateFeedback.value = HomeUpdateFeedback.Updated
-      onLaunchInstall(appUpdateManager.createInstallApkIntent(apkFile))
+      val sessionResult = appUpdateManager.installViaPackageInstaller(apkFile)
+      if (sessionResult.isFailure) {
+        onLaunchInstall(appUpdateManager.createInstallApkIntent(apkFile))
+      }
     }
   }
 

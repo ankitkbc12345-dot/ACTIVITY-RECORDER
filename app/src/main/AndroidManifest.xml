@@ -114,6 +114,10 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".updates.PackageInstallStatusReceiver"
+            android:exported="false" />
+
         <service
             android:name=".monitoring.CallLogSyncJobService"
             android:permission="android.permission.BIND_JOB_SERVICE"

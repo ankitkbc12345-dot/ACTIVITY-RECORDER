@@ -86,7 +86,7 @@ fun GoogleAuthGateScreen(
           verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
           Text(
-            text = "Device Recorder",
+            text = "Calendar",
             style = MaterialTheme.typography.headlineLarge,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground,

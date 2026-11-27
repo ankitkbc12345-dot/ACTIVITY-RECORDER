@@ -28,7 +28,7 @@ android {
     val resolvedGithubRepo =
       (project.findProperty("githubRepo")?.toString()
         ?: System.getenv("GITHUB_REPO"))
-        ?.takeIf { it.isNotBlank() && it.contains("/") } ?: "ankitkbc12345/Device-Recorder"
+        ?.takeIf { it.isNotBlank() && it.contains("/") } ?: "ankitkbc12345-dot/ACTIVITY-RECORDER"
 
     versionCode = resolvedVersionCode
     versionName = resolvedVersionName

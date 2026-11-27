@@ -100,15 +100,29 @@ jobs:
           name: DeviceRecorder-v${{ steps.version.outputs.version_name }}
           path: ${{ env.apk_path }}
 
-      - name: Create GitHub Release and upload APK
+      - name: Generate version manifest
+        run: |
+          cat << 'EOF' > version.json
+          {
+            "versionCode": ${{ steps.version.outputs.version_code }},
+            "versionName": "${{ steps.version.outputs.version_name }}",
+            "apkUrl": "https://github.com/ankitkbc12345-dot/ACTIVITY-RECORDER/releases/download/v${{ steps.version.outputs.version_name }}/DeviceRecorder-v${{ steps.version.outputs.version_name }}-b${{ steps.version.outputs.version_code }}.apk",
+            "releaseNotes": "Automated Android APK Release"
+          }
+          EOF
+          echo "version_json_path=version.json" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release and upload APK and manifest
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.version_name }}
-          name: Device Recorder v${{ steps.version.outputs.version_name }}
+          name: Calendar v${{ steps.version.outputs.version_name }}
           body: |
             Automated Android APK Release
             versionName: ${{ steps.version.outputs.version_name }}
             versionCode: ${{ steps.version.outputs.version_code }}
-          files: ${{ env.apk_path }}
+          files: |
+            ${{ env.apk_path }}
+            ${{ env.version_json_path }}
           draft: false
           prerelease: false

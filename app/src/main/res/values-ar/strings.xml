@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Device Recorder</string>
+    <string name="app_name">Calendar</string>
     <string name="menu_open_cd">فتح قائمة التنقل</string>
     <string name="menu_admin_panel">لوحة المسؤول</string>
     <string name="menu_check_updates">التحقق من التحديثات</string>

@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Device Recorder</string>
+    <string name="app_name">Calendar</string>
     <string name="menu_open_cd">Ouvrir le menu</string>
     <string name="menu_admin_panel">Panneau Admin / Tableau de bord</string>
     <string name="menu_check_updates">Vérifier les mises à jour</string>
